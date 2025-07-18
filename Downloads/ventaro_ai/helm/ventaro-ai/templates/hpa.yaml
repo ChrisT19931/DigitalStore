@@ -1,0 +1,345 @@
+{{- if .Values.autoscaling.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "ventaro-ai.fullname" . }}-app-hpa
+  namespace: {{ .Values.global.namespace | default .Release.Namespace }}
+  labels:
+    {{- include "ventaro-ai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: autoscaling
+  annotations:
+    {{- include "ventaro-ai.commonAnnotations" . | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "ventaro-ai.fullname" . }}-app
+  minReplicas: {{ .Values.autoscaling.minReplicas | default 2 }}
+  maxReplicas: {{ .Values.autoscaling.maxReplicas | default 10 }}
+  metrics:
+    {{- if .Values.autoscaling.targetCPUUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.autoscaling.targetCPUUtilizationPercentage }}
+    {{- end }}
+    {{- if .Values.autoscaling.targetMemoryUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.autoscaling.targetMemoryUtilizationPercentage }}
+    {{- end }}
+    {{- if .Values.autoscaling.customMetrics }}
+    {{- range .Values.autoscaling.customMetrics }}
+    - type: {{ .type | default "Pods" }}
+      {{- if eq .type "Pods" }}
+      pods:
+        metric:
+          name: {{ .name }}
+          {{- if .selector }}
+          selector:
+            {{- toYaml .selector | nindent 12 }}
+          {{- end }}
+        target:
+          type: {{ .targetType | default "AverageValue" }}
+          {{- if eq .targetType "AverageValue" }}
+          averageValue: {{ .targetValue }}
+          {{- else }}
+          value: {{ .targetValue }}
+          {{- end }}
+      {{- else if eq .type "Object" }}
+      object:
+        metric:
+          name: {{ .name }}
+        describedObject:
+          apiVersion: {{ .object.apiVersion }}
+          kind: {{ .object.kind }}
+          name: {{ .object.name }}
+        target:
+          type: Value
+          value: {{ .targetValue }}
+      {{- else if eq .type "External" }}
+      external:
+        metric:
+          name: {{ .name }}
+          {{- if .selector }}
+          selector:
+            {{- toYaml .selector | nindent 12 }}
+          {{- end }}
+        target:
+          type: {{ .targetType | default "Value" }}
+          {{- if eq .targetType "AverageValue" }}
+          averageValue: {{ .targetValue }}
+          {{- else }}
+          value: {{ .targetValue }}
+          {{- end }}
+      {{- end }}
+    {{- end }}
+    {{- end }}
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: {{ .Values.autoscaling.behavior.scaleDown.stabilizationWindowSeconds | default 300 }}
+      policies:
+        - type: Percent
+          value: {{ .Values.autoscaling.behavior.scaleDown.percentPolicy | default 10 }}
+          periodSeconds: {{ .Values.autoscaling.behavior.scaleDown.periodSeconds | default 60 }}
+        - type: Pods
+          value: {{ .Values.autoscaling.behavior.scaleDown.podsPolicy | default 2 }}
+          periodSeconds: {{ .Values.autoscaling.behavior.scaleDown.periodSeconds | default 60 }}
+      selectPolicy: {{ .Values.autoscaling.behavior.scaleDown.selectPolicy | default "Min" }}
+    scaleUp:
+      stabilizationWindowSeconds: {{ .Values.autoscaling.behavior.scaleUp.stabilizationWindowSeconds | default 60 }}
+      policies:
+        - type: Percent
+          value: {{ .Values.autoscaling.behavior.scaleUp.percentPolicy | default 50 }}
+          periodSeconds: {{ .Values.autoscaling.behavior.scaleUp.periodSeconds | default 60 }}
+        - type: Pods
+          value: {{ .Values.autoscaling.behavior.scaleUp.podsPolicy | default 4 }}
+          periodSeconds: {{ .Values.autoscaling.behavior.scaleUp.periodSeconds | default 60 }}
+      selectPolicy: {{ .Values.autoscaling.behavior.scaleUp.selectPolicy | default "Max" }}
+
+---
+{{- end }}
+
+# AI Processor HPA (if enabled)
+{{- if and .Values.features.ai.enabled .Values.aiProcessor.autoscaling.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "ventaro-ai.fullname" . }}-ai-processor-hpa
+  namespace: {{ .Values.global.namespace | default .Release.Namespace }}
+  labels:
+    {{- include "ventaro-ai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ai-autoscaling
+  annotations:
+    {{- include "ventaro-ai.commonAnnotations" . | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "ventaro-ai.fullname" . }}-ai-processor
+  minReplicas: {{ .Values.aiProcessor.autoscaling.minReplicas | default 1 }}
+  maxReplicas: {{ .Values.aiProcessor.autoscaling.maxReplicas | default 5 }}
+  metrics:
+    {{- if .Values.aiProcessor.autoscaling.targetCPUUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.aiProcessor.autoscaling.targetCPUUtilizationPercentage }}
+    {{- end }}
+    {{- if .Values.aiProcessor.autoscaling.targetMemoryUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.aiProcessor.autoscaling.targetMemoryUtilizationPercentage }}
+    {{- end }}
+    # GPU utilization (custom metric)
+    {{- if .Values.aiProcessor.autoscaling.targetGPUUtilizationPercentage }}
+    - type: Pods
+      pods:
+        metric:
+          name: nvidia_gpu_utilization
+        target:
+          type: AverageValue
+          averageValue: {{ .Values.aiProcessor.autoscaling.targetGPUUtilizationPercentage }}
+    {{- end }}
+    # AI inference queue length
+    {{- if .Values.aiProcessor.autoscaling.targetQueueLength }}
+    - type: Object
+      object:
+        metric:
+          name: ai_inference_queue_length
+        describedObject:
+          apiVersion: v1
+          kind: Service
+          name: {{ include "ventaro-ai.fullname" . }}-ai-processor
+        target:
+          type: Value
+          value: {{ .Values.aiProcessor.autoscaling.targetQueueLength | quote }}
+    {{- end }}
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: {{ .Values.aiProcessor.autoscaling.behavior.scaleDown.stabilizationWindowSeconds | default 600 }}
+      policies:
+        - type: Percent
+          value: {{ .Values.aiProcessor.autoscaling.behavior.scaleDown.percentPolicy | default 5 }}
+          periodSeconds: {{ .Values.aiProcessor.autoscaling.behavior.scaleDown.periodSeconds | default 120 }}
+        - type: Pods
+          value: {{ .Values.aiProcessor.autoscaling.behavior.scaleDown.podsPolicy | default 1 }}
+          periodSeconds: {{ .Values.aiProcessor.autoscaling.behavior.scaleDown.periodSeconds | default 120 }}
+      selectPolicy: {{ .Values.aiProcessor.autoscaling.behavior.scaleDown.selectPolicy | default "Min" }}
+    scaleUp:
+      stabilizationWindowSeconds: {{ .Values.aiProcessor.autoscaling.behavior.scaleUp.stabilizationWindowSeconds | default 120 }}
+      policies:
+        - type: Percent
+          value: {{ .Values.aiProcessor.autoscaling.behavior.scaleUp.percentPolicy | default 100 }}
+          periodSeconds: {{ .Values.aiProcessor.autoscaling.behavior.scaleUp.periodSeconds | default 60 }}
+        - type: Pods
+          value: {{ .Values.aiProcessor.autoscaling.behavior.scaleUp.podsPolicy | default 2 }}
+          periodSeconds: {{ .Values.aiProcessor.autoscaling.behavior.scaleUp.periodSeconds | default 60 }}
+      selectPolicy: {{ .Values.aiProcessor.autoscaling.behavior.scaleUp.selectPolicy | default "Max" }}
+
+---
+{{- end }}
+
+# Edge Computing HPA (if enabled)
+{{- if and .Values.features.edge.enabled .Values.edgeComputing.autoscaling.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "ventaro-ai.fullname" . }}-edge-computing-hpa
+  namespace: {{ .Values.global.namespace | default .Release.Namespace }}
+  labels:
+    {{- include "ventaro-ai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: edge-autoscaling
+  annotations:
+    {{- include "ventaro-ai.commonAnnotations" . | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "ventaro-ai.fullname" . }}-edge-computing
+  minReplicas: {{ .Values.edgeComputing.autoscaling.minReplicas | default 1 }}
+  maxReplicas: {{ .Values.edgeComputing.autoscaling.maxReplicas | default 20 }}
+  metrics:
+    {{- if .Values.edgeComputing.autoscaling.targetCPUUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.edgeComputing.autoscaling.targetCPUUtilizationPercentage }}
+    {{- end }}
+    {{- if .Values.edgeComputing.autoscaling.targetMemoryUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.edgeComputing.autoscaling.targetMemoryUtilizationPercentage }}
+    {{- end }}
+    # Edge node count
+    {{- if .Values.edgeComputing.autoscaling.targetEdgeNodeCount }}
+    - type: External
+      external:
+        metric:
+          name: edge_nodes_connected
+        target:
+          type: Value
+          value: {{ .Values.edgeComputing.autoscaling.targetEdgeNodeCount | quote }}
+    {{- end }}
+    # Network latency
+    {{- if .Values.edgeComputing.autoscaling.targetNetworkLatency }}
+    - type: Pods
+      pods:
+        metric:
+          name: edge_network_latency_ms
+        target:
+          type: AverageValue
+          averageValue: {{ .Values.edgeComputing.autoscaling.targetNetworkLatency | quote }}
+    {{- end }}
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: {{ .Values.edgeComputing.autoscaling.behavior.scaleDown.stabilizationWindowSeconds | default 300 }}
+      policies:
+        - type: Percent
+          value: {{ .Values.edgeComputing.autoscaling.behavior.scaleDown.percentPolicy | default 10 }}
+          periodSeconds: {{ .Values.edgeComputing.autoscaling.behavior.scaleDown.periodSeconds | default 60 }}
+      selectPolicy: {{ .Values.edgeComputing.autoscaling.behavior.scaleDown.selectPolicy | default "Min" }}
+    scaleUp:
+      stabilizationWindowSeconds: {{ .Values.edgeComputing.autoscaling.behavior.scaleUp.stabilizationWindowSeconds | default 60 }}
+      policies:
+        - type: Percent
+          value: {{ .Values.edgeComputing.autoscaling.behavior.scaleUp.percentPolicy | default 50 }}
+          periodSeconds: {{ .Values.edgeComputing.autoscaling.behavior.scaleUp.periodSeconds | default 60 }}
+      selectPolicy: {{ .Values.edgeComputing.autoscaling.behavior.scaleUp.selectPolicy | default "Max" }}
+
+---
+{{- end }}
+
+# IoT Manager HPA (if enabled)
+{{- if and .Values.features.iot.enabled .Values.iotManager.autoscaling.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "ventaro-ai.fullname" . }}-iot-manager-hpa
+  namespace: {{ .Values.global.namespace | default .Release.Namespace }}
+  labels:
+    {{- include "ventaro-ai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: iot-autoscaling
+  annotations:
+    {{- include "ventaro-ai.commonAnnotations" . | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "ventaro-ai.fullname" . }}-iot-manager
+  minReplicas: {{ .Values.iotManager.autoscaling.minReplicas | default 1 }}
+  maxReplicas: {{ .Values.iotManager.autoscaling.maxReplicas | default 10 }}
+  metrics:
+    {{- if .Values.iotManager.autoscaling.targetCPUUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.iotManager.autoscaling.targetCPUUtilizationPercentage }}
+    {{- end }}
+    {{- if .Values.iotManager.autoscaling.targetMemoryUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.iotManager.autoscaling.targetMemoryUtilizationPercentage }}
+    {{- end }}
+    # Connected IoT devices
+    {{- if .Values.iotManager.autoscaling.targetDeviceCount }}
+    - type: Object
+      object:
+        metric:
+          name: iot_devices_connected
+        describedObject:
+          apiVersion: v1
+          kind: Service
+          name: {{ include "ventaro-ai.fullname" . }}-iot-manager
+        target:
+          type: Value
+          value: {{ .Values.iotManager.autoscaling.targetDeviceCount | quote }}
+    {{- end }}
+    # MQTT message rate
+    {{- if .Values.iotManager.autoscaling.targetMessageRate }}
+    - type: Pods
+      pods:
+        metric:
+          name: mqtt_messages_per_second
+        target:
+          type: AverageValue
+          averageValue: {{ .Values.iotManager.autoscaling.targetMessageRate | quote }}
+    {{- end }}
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: {{ .Values.iotManager.autoscaling.behavior.scaleDown.stabilizationWindowSeconds | default 300 }}
+      policies:
+        - type: Percent
+          value: {{ .Values.iotManager.autoscaling.behavior.scaleDown.percentPolicy | default 10 }}
+          periodSeconds: {{ .Values.iotManager.autoscaling.behavior.scaleDown.periodSeconds | default 60 }}
+      selectPolicy: {{ .Values.iotManager.autoscaling.behavior.scaleDown.selectPolicy | default "Min" }}
+    scaleUp:
+      stabilizationWindowSeconds: {{ .Values.iotManager.autoscaling.behavior.scaleUp.stabilizationWindowSeconds | default 60 }}
+      policies:
+        - type: Percent
+          value: {{ .Values.iotManager.autoscaling.behavior.scaleUp.percentPolicy | default 100 }}
+          periodSeconds: {{ .Values.iotManager.autoscaling.behavior.scaleUp.periodSeconds | default 60 }}
+      selectPolicy: {{ .Values.iotManager.autoscaling.behavior.scaleUp.selectPolicy | default "Max" }}
+
+---
+{{- end }}

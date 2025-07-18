@@ -1,0 +1,287 @@
+{{- if .Values.config.configMaps }}
+{{- range $configMapName, $configMapData := .Values.config.configMaps }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "ventaro-ai.fullname" $ }}-{{ $configMapName }}
+  namespace: {{ $.Values.global.namespace | default $.Release.Namespace }}
+  labels:
+    {{- include "ventaro-ai.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: configuration
+  annotations:
+    {{- include "ventaro-ai.commonAnnotations" $ | nindent 4 }}
+data:
+  {{- range $key, $value := $configMapData.data }}
+  {{ $key }}: {{ $value | quote }}
+  {{- end }}
+---
+{{- end }}
+{{- end }}
+
+# Database connection URLs ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "ventaro-ai.fullname" . }}-database-config
+  namespace: {{ .Values.global.namespace | default .Release.Namespace }}
+  labels:
+    {{- include "ventaro-ai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: database-config
+  annotations:
+    {{- include "ventaro-ai.commonAnnotations" . | nindent 4 }}
+data:
+  {{- if .Values.databases.postgresql.enabled }}
+  POSTGRES_HOST: {{ include "ventaro-ai.fullname" . }}-postgresql
+  POSTGRES_PORT: "5432"
+  POSTGRES_DATABASE: {{ .Values.databases.postgresql.auth.database | quote }}
+  POSTGRES_USERNAME: {{ .Values.databases.postgresql.auth.username | quote }}
+  {{- end }}
+  {{- if .Values.databases.mongodb.enabled }}
+  MONGODB_HOST: {{ include "ventaro-ai.fullname" . }}-mongodb
+  MONGODB_PORT: "27017"
+  MONGODB_DATABASE: {{ .Values.databases.mongodb.auth.database | quote }}
+  MONGODB_USERNAME: {{ .Values.databases.mongodb.auth.username | quote }}
+  {{- end }}
+  {{- if .Values.databases.redis.enabled }}
+  REDIS_HOST: {{ include "ventaro-ai.fullname" . }}-redis-master
+  REDIS_PORT: "6379"
+  {{- end }}
+  {{- if .Values.databases.influxdb.enabled }}
+  INFLUXDB_HOST: {{ include "ventaro-ai.fullname" . }}-influxdb
+  INFLUXDB_PORT: "8086"
+  INFLUXDB_USERNAME: {{ .Values.databases.influxdb.auth.admin.username | quote }}
+  {{- end }}
+
+---
+# Monitoring configuration
+{{- if .Values.monitoring.prometheus.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "ventaro-ai.fullname" . }}-monitoring-config
+  namespace: {{ .Values.global.namespace | default .Release.Namespace }}
+  labels:
+    {{- include "ventaro-ai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: monitoring-config
+  annotations:
+    {{- include "ventaro-ai.commonAnnotations" . | nindent 4 }}
+data:
+  PROMETHEUS_URL: "http://{{ include "ventaro-ai.fullname" . }}-prometheus-server:80"
+  {{- if .Values.monitoring.grafana.enabled }}
+  GRAFANA_URL: "http://{{ include "ventaro-ai.fullname" . }}-grafana:80"
+  {{- end }}
+  {{- if .Values.monitoring.jaeger.enabled }}
+  JAEGER_ENDPOINT: "http://{{ include "ventaro-ai.fullname" . }}-jaeger-collector:14268/api/traces"
+  JAEGER_QUERY_URL: "http://{{ include "ventaro-ai.fullname" . }}-jaeger-query:16686"
+  {{- end }}
+  METRICS_ENABLED: "true"
+  TRACING_ENABLED: "true"
+  LOGGING_LEVEL: "info"
+---
+{{- end }}
+
+# Logging configuration
+{{- if .Values.logging.elasticsearch.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "ventaro-ai.fullname" . }}-logging-config
+  namespace: {{ .Values.global.namespace | default .Release.Namespace }}
+  labels:
+    {{- include "ventaro-ai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: logging-config
+  annotations:
+    {{- include "ventaro-ai.commonAnnotations" . | nindent 4 }}
+data:
+  ELASTICSEARCH_URL: "http://{{ include "ventaro-ai.fullname" . }}-elasticsearch-master:9200"
+  {{- if .Values.logging.kibana.enabled }}
+  KIBANA_URL: "http://{{ include "ventaro-ai.fullname" . }}-kibana:5601"
+  {{- end }}
+  LOG_LEVEL: "info"
+  LOG_FORMAT: "json"
+  LOG_OUTPUT: "stdout"
+---
+{{- end }}
+
+# Feature flags configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "ventaro-ai.fullname" . }}-feature-flags
+  namespace: {{ .Values.global.namespace | default .Release.Namespace }}
+  labels:
+    {{- include "ventaro-ai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: feature-flags
+  annotations:
+    {{- include "ventaro-ai.commonAnnotations" . | nindent 4 }}
+data:
+  {{- if .Values.features }}
+  FEATURE_FLAGS: |
+    {
+      "ai": {
+        "enabled": {{ .Values.features.ai.enabled }},
+        "models": {
+          "gpt4": {{ .Values.features.ai.models.gpt4 | default false }},
+          "claude": {{ .Values.features.ai.models.claude | default false }},
+          "llama": {{ .Values.features.ai.models.llama | default false }},
+          "custom": {{ .Values.features.ai.models.custom | default false }}
+        }
+      },
+      "iot": {
+        "enabled": {{ .Values.features.iot.enabled }},
+        "protocols": {
+          "mqtt": {{ .Values.features.iot.protocols.mqtt | default false }},
+          "coap": {{ .Values.features.iot.protocols.coap | default false }},
+          "websocket": {{ .Values.features.iot.protocols.websocket | default false }}
+        }
+      },
+      "edge": {
+        "enabled": {{ .Values.features.edge.enabled }},
+        "computing": {
+          "enabled": {{ .Values.features.edge.computing.enabled | default false }},
+          "maxNodes": {{ .Values.features.edge.computing.maxNodes | default 1000 }}
+        }
+      },
+      "blockchain": {
+        "enabled": {{ .Values.features.blockchain.enabled }},
+        "networks": {
+          "ethereum": {{ .Values.features.blockchain.networks.ethereum | default false }},
+          "polygon": {{ .Values.features.blockchain.networks.polygon | default false }}
+        }
+      },
+      "ar_vr": {
+        "enabled": {{ .Values.features.ar_vr.enabled }},
+        "webxr": {{ .Values.features.ar_vr.webxr | default false }},
+        "unity": {{ .Values.features.ar_vr.unity | default false }}
+      }
+    }
+  {{- end }}
+
+---
+# Performance and optimization configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "ventaro-ai.fullname" . }}-performance-config
+  namespace: {{ .Values.global.namespace | default .Release.Namespace }}
+  labels:
+    {{- include "ventaro-ai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: performance-config
+  annotations:
+    {{- include "ventaro-ai.commonAnnotations" . | nindent 4 }}
+data:
+  # Node.js optimization
+  NODE_OPTIONS: "--max-old-space-size=4096 --optimize-for-size"
+  UV_THREADPOOL_SIZE: "16"
+  
+  # Application performance
+  MAX_CONCURRENT_REQUESTS: "1000"
+  REQUEST_TIMEOUT: "30000"
+  KEEP_ALIVE_TIMEOUT: "5000"
+  
+  # Caching configuration
+  CACHE_TTL: "3600"
+  CACHE_MAX_SIZE: "1000"
+  
+  # Rate limiting
+  RATE_LIMIT_WINDOW: "900000"
+  RATE_LIMIT_MAX_REQUESTS: "1000"
+  
+  # Connection pooling
+  DB_POOL_MIN: "5"
+  DB_POOL_MAX: "20"
+  DB_POOL_IDLE_TIMEOUT: "30000"
+  
+  # Compression
+  COMPRESSION_ENABLED: "true"
+  COMPRESSION_LEVEL: "6"
+  
+  # Security headers
+  SECURITY_HEADERS_ENABLED: "true"
+  CORS_ENABLED: "true"
+  CORS_ORIGIN: "*"
+
+---
+# Integration configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "ventaro-ai.fullname" . }}-integration-config
+  namespace: {{ .Values.global.namespace | default .Release.Namespace }}
+  labels:
+    {{- include "ventaro-ai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: integration-config
+  annotations:
+    {{- include "ventaro-ai.commonAnnotations" . | nindent 4 }}
+data:
+  # AWS integration
+  {{- if .Values.integrations.aws.enabled }}
+  AWS_REGION: {{ .Values.integrations.aws.region | quote }}
+  AWS_SDK_LOAD_CONFIG: "true"
+  {{- end }}
+  
+  # External API endpoints
+  OPENAI_API_URL: "https://api.openai.com/v1"
+  HUGGINGFACE_API_URL: "https://api-inference.huggingface.co"
+  
+  # Webhook configuration
+  WEBHOOK_TIMEOUT: "10000"
+  WEBHOOK_RETRY_ATTEMPTS: "3"
+  WEBHOOK_RETRY_DELAY: "1000"
+  
+  # Email configuration
+  EMAIL_PROVIDER: "sendgrid"
+  EMAIL_FROM: "noreply@ventaro.ai"
+  
+  # SMS configuration
+  SMS_PROVIDER: "twilio"
+  
+  # Payment configuration
+  PAYMENT_PROVIDER: "stripe"
+  PAYMENT_CURRENCY: "USD"
+  
+  # File upload configuration
+  UPLOAD_MAX_SIZE: "100MB"
+  UPLOAD_ALLOWED_TYPES: "image/*,application/pdf,text/*"
+  
+  # Session configuration
+  SESSION_TIMEOUT: "3600000"
+  SESSION_SECURE: "true"
+  SESSION_SAME_SITE: "strict"
+
+---
+# Development and debugging configuration
+{{- if .Values.development.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "ventaro-ai.fullname" . }}-development-config
+  namespace: {{ .Values.global.namespace | default .Release.Namespace }}
+  labels:
+    {{- include "ventaro-ai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: development-config
+  annotations:
+    {{- include "ventaro-ai.commonAnnotations" . | nindent 4 }}
+data:
+  DEBUG: {{ .Values.development.debug | quote }}
+  HOT_RELOAD: {{ .Values.development.hotReload | quote }}
+  MOCK_SERVICES: {{ .Values.development.mockServices | quote }}
+  TEST_DATA: {{ .Values.development.testData | quote }}
+  
+  # Development API endpoints
+  DEV_API_ENABLED: "true"
+  DEV_METRICS_ENABLED: "true"
+  DEV_PROFILING_ENABLED: "true"
+  
+  # Debug logging
+  DEBUG_LEVEL: "verbose"
+  DEBUG_MODULES: "*"
+  
+  # Development tools
+  SWAGGER_ENABLED: "true"
+  GRAPHQL_PLAYGROUND: "true"
+  
+  # Hot reload configuration
+  WATCH_FILES: "true"
+  WATCH_EXTENSIONS: ".js,.ts,.json,.yaml"
+{{- end }}

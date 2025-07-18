@@ -1,0 +1,904 @@
+# Ventaro AI - Kubernetes Deployment Configuration
+# Complete production-ready deployment with auto-scaling, monitoring, and security
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ventaro-ai
+  labels:
+    name: ventaro-ai
+    environment: production
+
+---
+# ConfigMap for application configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ventaro-config
+  namespace: ventaro-ai
+data:
+  NODE_ENV: "production"
+  LOG_LEVEL: "info"
+  REDIS_HOST: "redis-service"
+  REDIS_PORT: "6379"
+  MONGODB_HOST: "mongodb-service"
+  MONGODB_PORT: "27017"
+  INFLUXDB_HOST: "influxdb-service"
+  INFLUXDB_PORT: "8086"
+  MESH_PORT: "8090"
+  WEBSOCKET_PORT: "8080"
+  COAP_PORT: "5683"
+  OPCUA_PORT: "4840"
+
+---
+# Secret for sensitive configuration
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ventaro-secrets
+  namespace: ventaro-ai
+type: Opaque
+data:
+  # Base64 encoded secrets (replace with actual values)
+  OPENAI_API_KEY: "<base64-encoded-openai-key>"
+  SUPABASE_URL: "<base64-encoded-supabase-url>"
+  SUPABASE_ANON_KEY: "<base64-encoded-supabase-key>"
+  STRIPE_SECRET_KEY: "<base64-encoded-stripe-key>"
+  JWT_SECRET: "<base64-encoded-jwt-secret>"
+  ENCRYPTION_KEY: "<base64-encoded-encryption-key>"
+  REDIS_PASSWORD: "<base64-encoded-redis-password>"
+  MONGODB_PASSWORD: "<base64-encoded-mongodb-password>"
+
+---
+# Main Application Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ventaro-app
+  namespace: ventaro-ai
+  labels:
+    app: ventaro-app
+    tier: frontend
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: ventaro-app
+  template:
+    metadata:
+      labels:
+        app: ventaro-app
+        tier: frontend
+    spec:
+      serviceAccountName: ventaro-service-account
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        fsGroup: 1001
+      containers:
+      - name: ventaro-app
+        image: ventaro/ai-platform:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 3000
+          name: http
+        - containerPort: 8080
+          name: websocket
+        env:
+        - name: PORT
+          value: "3000"
+        envFrom:
+        - configMapRef:
+            name: ventaro-config
+        - secretRef:
+            name: ventaro-secrets
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 3000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 3000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        volumeMounts:
+        - name: app-storage
+          mountPath: /app/data
+        - name: logs-storage
+          mountPath: /app/logs
+        - name: models-storage
+          mountPath: /app/models
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+      volumes:
+      - name: app-storage
+        persistentVolumeClaim:
+          claimName: ventaro-app-pvc
+      - name: logs-storage
+        persistentVolumeClaim:
+          claimName: ventaro-logs-pvc
+      - name: models-storage
+        persistentVolumeClaim:
+          claimName: ventaro-models-pvc
+      nodeSelector:
+        kubernetes.io/arch: amd64
+      tolerations:
+      - key: "node.kubernetes.io/not-ready"
+        operator: "Exists"
+        effect: "NoExecute"
+        tolerationSeconds: 300
+      - key: "node.kubernetes.io/unreachable"
+        operator: "Exists"
+        effect: "NoExecute"
+        tolerationSeconds: 300
+
+---
+# AI Processing Deployment (GPU-enabled)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ventaro-ai-processor
+  namespace: ventaro-ai
+  labels:
+    app: ventaro-ai-processor
+    tier: ai
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: ventaro-ai-processor
+  template:
+    metadata:
+      labels:
+        app: ventaro-ai-processor
+        tier: ai
+    spec:
+      serviceAccountName: ventaro-service-account
+      containers:
+      - name: ai-processor
+        image: ventaro/ai-platform:ai-gpu
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 3001
+          name: ai-api
+        env:
+        - name: SERVICE_TYPE
+          value: "ai-processor"
+        - name: GPU_ENABLED
+          value: "true"
+        envFrom:
+        - configMapRef:
+            name: ventaro-config
+        - secretRef:
+            name: ventaro-secrets
+        resources:
+          requests:
+            memory: "2Gi"
+            cpu: "500m"
+            nvidia.com/gpu: 1
+          limits:
+            memory: "8Gi"
+            cpu: "2000m"
+            nvidia.com/gpu: 1
+        volumeMounts:
+        - name: models-storage
+          mountPath: /app/models
+        - name: ai-cache
+          mountPath: /app/cache
+      volumes:
+      - name: models-storage
+        persistentVolumeClaim:
+          claimName: ventaro-models-pvc
+      - name: ai-cache
+        emptyDir:
+          sizeLimit: 10Gi
+      nodeSelector:
+        accelerator: nvidia-tesla-gpu
+
+---
+# Edge Computing Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ventaro-edge
+  namespace: ventaro-ai
+  labels:
+    app: ventaro-edge
+    tier: edge
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: ventaro-edge
+  template:
+    metadata:
+      labels:
+        app: ventaro-edge
+        tier: edge
+    spec:
+      serviceAccountName: ventaro-service-account
+      containers:
+      - name: edge-node
+        image: ventaro/ai-platform:edge
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8090
+          name: mesh
+        - containerPort: 5683
+          name: coap
+        env:
+        - name: SERVICE_TYPE
+          value: "edge-node"
+        - name: NODE_ID
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        envFrom:
+        - configMapRef:
+            name: ventaro-config
+        - secretRef:
+            name: ventaro-secrets
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+        volumeMounts:
+        - name: edge-data
+          mountPath: /app/edge-data
+      volumes:
+      - name: edge-data
+        emptyDir:
+          sizeLimit: 5Gi
+
+---
+# IoT Manager Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ventaro-iot
+  namespace: ventaro-ai
+  labels:
+    app: ventaro-iot
+    tier: iot
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: ventaro-iot
+  template:
+    metadata:
+      labels:
+        app: ventaro-iot
+        tier: iot
+    spec:
+      serviceAccountName: ventaro-service-account
+      containers:
+      - name: iot-manager
+        image: ventaro/ai-platform:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 3002
+          name: iot-api
+        - containerPort: 8080
+          name: iot-ws
+        - containerPort: 5683
+          name: coap
+        - containerPort: 4840
+          name: opcua
+        env:
+        - name: SERVICE_TYPE
+          value: "iot-manager"
+        envFrom:
+        - configMapRef:
+            name: ventaro-config
+        - secretRef:
+            name: ventaro-secrets
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+        volumeMounts:
+        - name: iot-data
+          mountPath: /app/iot-data
+      volumes:
+      - name: iot-data
+        persistentVolumeClaim:
+          claimName: ventaro-iot-pvc
+
+---
+# Redis Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: ventaro-ai
+  labels:
+    app: redis
+    tier: cache
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+        tier: cache
+    spec:
+      containers:
+      - name: redis
+        image: redis:7-alpine
+        ports:
+        - containerPort: 6379
+        env:
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: ventaro-secrets
+              key: REDIS_PASSWORD
+        command:
+        - redis-server
+        - --requirepass
+        - $(REDIS_PASSWORD)
+        - --maxmemory
+        - 256mb
+        - --maxmemory-policy
+        - allkeys-lru
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        volumeMounts:
+        - name: redis-storage
+          mountPath: /data
+      volumes:
+      - name: redis-storage
+        persistentVolumeClaim:
+          claimName: redis-pvc
+
+---
+# MongoDB Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mongodb
+  namespace: ventaro-ai
+  labels:
+    app: mongodb
+    tier: database
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mongodb
+  template:
+    metadata:
+      labels:
+        app: mongodb
+        tier: database
+    spec:
+      containers:
+      - name: mongodb
+        image: mongo:6
+        ports:
+        - containerPort: 27017
+        env:
+        - name: MONGO_INITDB_ROOT_USERNAME
+          value: "ventaro"
+        - name: MONGO_INITDB_ROOT_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: ventaro-secrets
+              key: MONGODB_PASSWORD
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+        volumeMounts:
+        - name: mongodb-storage
+          mountPath: /data/db
+      volumes:
+      - name: mongodb-storage
+        persistentVolumeClaim:
+          claimName: mongodb-pvc
+
+---
+# InfluxDB Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: influxdb
+  namespace: ventaro-ai
+  labels:
+    app: influxdb
+    tier: timeseries
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: influxdb
+  template:
+    metadata:
+      labels:
+        app: influxdb
+        tier: timeseries
+    spec:
+      containers:
+      - name: influxdb
+        image: influxdb:2.7
+        ports:
+        - containerPort: 8086
+        env:
+        - name: DOCKER_INFLUXDB_INIT_MODE
+          value: "setup"
+        - name: DOCKER_INFLUXDB_INIT_USERNAME
+          value: "ventaro"
+        - name: DOCKER_INFLUXDB_INIT_PASSWORD
+          value: "ventaro123"
+        - name: DOCKER_INFLUXDB_INIT_ORG
+          value: "ventaro-ai"
+        - name: DOCKER_INFLUXDB_INIT_BUCKET
+          value: "iot-data"
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+        volumeMounts:
+        - name: influxdb-storage
+          mountPath: /var/lib/influxdb2
+      volumes:
+      - name: influxdb-storage
+        persistentVolumeClaim:
+          claimName: influxdb-pvc
+
+---
+# Services
+apiVersion: v1
+kind: Service
+metadata:
+  name: ventaro-app-service
+  namespace: ventaro-ai
+  labels:
+    app: ventaro-app
+spec:
+  selector:
+    app: ventaro-app
+  ports:
+  - name: http
+    port: 80
+    targetPort: 3000
+    protocol: TCP
+  - name: websocket
+    port: 8080
+    targetPort: 8080
+    protocol: TCP
+  type: ClusterIP
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ventaro-ai-service
+  namespace: ventaro-ai
+  labels:
+    app: ventaro-ai-processor
+spec:
+  selector:
+    app: ventaro-ai-processor
+  ports:
+  - name: ai-api
+    port: 3001
+    targetPort: 3001
+    protocol: TCP
+  type: ClusterIP
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ventaro-edge-service
+  namespace: ventaro-ai
+  labels:
+    app: ventaro-edge
+spec:
+  selector:
+    app: ventaro-edge
+  ports:
+  - name: mesh
+    port: 8090
+    targetPort: 8090
+    protocol: TCP
+  - name: coap
+    port: 5683
+    targetPort: 5683
+    protocol: UDP
+  type: ClusterIP
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ventaro-iot-service
+  namespace: ventaro-ai
+  labels:
+    app: ventaro-iot
+spec:
+  selector:
+    app: ventaro-iot
+  ports:
+  - name: iot-api
+    port: 3002
+    targetPort: 3002
+    protocol: TCP
+  - name: iot-ws
+    port: 8080
+    targetPort: 8080
+    protocol: TCP
+  - name: coap
+    port: 5683
+    targetPort: 5683
+    protocol: UDP
+  - name: opcua
+    port: 4840
+    targetPort: 4840
+    protocol: TCP
+  type: ClusterIP
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-service
+  namespace: ventaro-ai
+  labels:
+    app: redis
+spec:
+  selector:
+    app: redis
+  ports:
+  - port: 6379
+    targetPort: 6379
+  type: ClusterIP
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mongodb-service
+  namespace: ventaro-ai
+  labels:
+    app: mongodb
+spec:
+  selector:
+    app: mongodb
+  ports:
+  - port: 27017
+    targetPort: 27017
+  type: ClusterIP
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: influxdb-service
+  namespace: ventaro-ai
+  labels:
+    app: influxdb
+spec:
+  selector:
+    app: influxdb
+  ports:
+  - port: 8086
+    targetPort: 8086
+  type: ClusterIP
+
+---
+# Persistent Volume Claims
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ventaro-app-pvc
+  namespace: ventaro-ai
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: fast-ssd
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ventaro-logs-pvc
+  namespace: ventaro-ai
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+  storageClassName: standard
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ventaro-models-pvc
+  namespace: ventaro-ai
+spec:
+  accessModes:
+  - ReadWriteMany
+  resources:
+    requests:
+      storage: 50Gi
+  storageClassName: fast-ssd
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ventaro-iot-pvc
+  namespace: ventaro-ai
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi
+  storageClassName: standard
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: redis-pvc
+  namespace: ventaro-ai
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+  storageClassName: fast-ssd
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mongodb-pvc
+  namespace: ventaro-ai
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 100Gi
+  storageClassName: standard
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: influxdb-pvc
+  namespace: ventaro-ai
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 50Gi
+  storageClassName: standard
+
+---
+# Horizontal Pod Autoscaler
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: ventaro-app-hpa
+  namespace: ventaro-ai
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: ventaro-app
+  minReplicas: 3
+  maxReplicas: 20
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+      - type: Percent
+        value: 10
+        periodSeconds: 60
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+      - type: Percent
+        value: 50
+        periodSeconds: 60
+      - type: Pods
+        value: 2
+        periodSeconds: 60
+
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: ventaro-ai-hpa
+  namespace: ventaro-ai
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: ventaro-ai-processor
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 80
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 85
+
+---
+# Service Account
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ventaro-service-account
+  namespace: ventaro-ai
+
+---
+# Role for service account
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ventaro-role
+  namespace: ventaro-ai
+rules:
+- apiGroups: [""]
+  resources: ["pods", "services", "endpoints"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["apps"]
+  resources: ["deployments", "replicasets"]
+  verbs: ["get", "list", "watch"]
+
+---
+# Role binding
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ventaro-role-binding
+  namespace: ventaro-ai
+subjects:
+- kind: ServiceAccount
+  name: ventaro-service-account
+  namespace: ventaro-ai
+roleRef:
+  kind: Role
+  name: ventaro-role
+  apiGroup: rbac.authorization.k8s.io
+
+---
+# Network Policy
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ventaro-network-policy
+  namespace: ventaro-ai
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: ventaro-ai
+    - namespaceSelector:
+        matchLabels:
+          name: ingress-nginx
+  egress:
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 53
+    - protocol: UDP
+      port: 53
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: ventaro-ai
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 443
+    - protocol: TCP
+      port: 80
+
+---
+# Pod Disruption Budget
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: ventaro-app-pdb
+  namespace: ventaro-ai
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: ventaro-app
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: ventaro-ai-pdb
+  namespace: ventaro-ai
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: ventaro-ai-processor

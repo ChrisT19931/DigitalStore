@@ -1,0 +1,383 @@
+{{- if .Values.persistence.enabled }}
+# Main application data PVC
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "ventaro-ai.fullname" . }}-app-data
+  namespace: {{ .Values.global.namespace | default .Release.Namespace }}
+  labels:
+    {{- include "ventaro-ai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: storage
+  annotations:
+    {{- include "ventaro-ai.commonAnnotations" . | nindent 4 }}
+    {{- with .Values.persistence.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  accessModes:
+    {{- range .Values.persistence.accessModes | default (list "ReadWriteOnce") }}
+    - {{ . }}
+    {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.size | default "10Gi" }}
+  {{- if .Values.persistence.storageClass }}
+  {{- if eq "-" .Values.persistence.storageClass }}
+  storageClassName: ""
+  {{- else }}
+  storageClassName: {{ .Values.persistence.storageClass }}
+  {{- end }}
+  {{- else if .Values.global.storageClass }}
+  storageClassName: {{ .Values.global.storageClass }}
+  {{- end }}
+  {{- if .Values.persistence.selector }}
+  selector:
+    {{- toYaml .Values.persistence.selector | nindent 4 }}
+  {{- end }}
+  {{- if .Values.persistence.dataSource }}
+  dataSource:
+    {{- toYaml .Values.persistence.dataSource | nindent 4 }}
+  {{- end }}
+
+---
+{{- end }}
+
+# AI Models storage PVC (if AI is enabled)
+{{- if and .Values.features.ai.enabled .Values.aiProcessor.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "ventaro-ai.fullname" . }}-ai-models
+  namespace: {{ .Values.global.namespace | default .Release.Namespace }}
+  labels:
+    {{- include "ventaro-ai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ai-storage
+  annotations:
+    {{- include "ventaro-ai.commonAnnotations" . | nindent 4 }}
+    {{- with .Values.aiProcessor.persistence.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  accessModes:
+    {{- range .Values.aiProcessor.persistence.accessModes | default (list "ReadWriteMany") }}
+    - {{ . }}
+    {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.aiProcessor.persistence.size | default "100Gi" }}
+  {{- if .Values.aiProcessor.persistence.storageClass }}
+  {{- if eq "-" .Values.aiProcessor.persistence.storageClass }}
+  storageClassName: ""
+  {{- else }}
+  storageClassName: {{ .Values.aiProcessor.persistence.storageClass }}
+  {{- end }}
+  {{- else if .Values.global.storageClass }}
+  storageClassName: {{ .Values.global.storageClass }}
+  {{- end }}
+  {{- if .Values.aiProcessor.persistence.selector }}
+  selector:
+    {{- toYaml .Values.aiProcessor.persistence.selector | nindent 4 }}
+  {{- end }}
+
+---
+# AI Training data PVC
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "ventaro-ai.fullname" . }}-ai-training-data
+  namespace: {{ .Values.global.namespace | default .Release.Namespace }}
+  labels:
+    {{- include "ventaro-ai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ai-training-storage
+  annotations:
+    {{- include "ventaro-ai.commonAnnotations" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: {{ .Values.aiProcessor.persistence.trainingDataSize | default "500Gi" }}
+  {{- if .Values.aiProcessor.persistence.storageClass }}
+  storageClassName: {{ .Values.aiProcessor.persistence.storageClass }}
+  {{- else if .Values.global.storageClass }}
+  storageClassName: {{ .Values.global.storageClass }}
+  {{- end }}
+
+---
+# AI Cache PVC (for model inference caching)
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "ventaro-ai.fullname" . }}-ai-cache
+  namespace: {{ .Values.global.namespace | default .Release.Namespace }}
+  labels:
+    {{- include "ventaro-ai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ai-cache-storage
+  annotations:
+    {{- include "ventaro-ai.commonAnnotations" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.aiProcessor.persistence.cacheSize | default "50Gi" }}
+  {{- if .Values.aiProcessor.persistence.storageClass }}
+  storageClassName: {{ .Values.aiProcessor.persistence.storageClass }}
+  {{- else if .Values.global.storageClass }}
+  storageClassName: {{ .Values.global.storageClass }}
+  {{- end }}
+
+---
+{{- end }}
+
+# Edge Computing storage PVC (if Edge is enabled)
+{{- if and .Values.features.edge.enabled .Values.edgeComputing.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "ventaro-ai.fullname" . }}-edge-data
+  namespace: {{ .Values.global.namespace | default .Release.Namespace }}
+  labels:
+    {{- include "ventaro-ai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: edge-storage
+  annotations:
+    {{- include "ventaro-ai.commonAnnotations" . | nindent 4 }}
+    {{- with .Values.edgeComputing.persistence.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  accessModes:
+    {{- range .Values.edgeComputing.persistence.accessModes | default (list "ReadWriteOnce") }}
+    - {{ . }}
+    {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.edgeComputing.persistence.size | default "20Gi" }}
+  {{- if .Values.edgeComputing.persistence.storageClass }}
+  {{- if eq "-" .Values.edgeComputing.persistence.storageClass }}
+  storageClassName: ""
+  {{- else }}
+  storageClassName: {{ .Values.edgeComputing.persistence.storageClass }}
+  {{- end }}
+  {{- else if .Values.global.storageClass }}
+  storageClassName: {{ .Values.global.storageClass }}
+  {{- end }}
+
+---
+{{- end }}
+
+# IoT data storage PVC (if IoT is enabled)
+{{- if and .Values.features.iot.enabled .Values.iotManager.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "ventaro-ai.fullname" . }}-iot-data
+  namespace: {{ .Values.global.namespace | default .Release.Namespace }}
+  labels:
+    {{- include "ventaro-ai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: iot-storage
+  annotations:
+    {{- include "ventaro-ai.commonAnnotations" . | nindent 4 }}
+    {{- with .Values.iotManager.persistence.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  accessModes:
+    {{- range .Values.iotManager.persistence.accessModes | default (list "ReadWriteOnce") }}
+    - {{ . }}
+    {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.iotManager.persistence.size | default "50Gi" }}
+  {{- if .Values.iotManager.persistence.storageClass }}
+  {{- if eq "-" .Values.iotManager.persistence.storageClass }}
+  storageClassName: ""
+  {{- else }}
+  storageClassName: {{ .Values.iotManager.persistence.storageClass }}
+  {{- end }}
+  {{- else if .Values.global.storageClass }}
+  storageClassName: {{ .Values.global.storageClass }}
+  {{- end }}
+
+---
+# IoT Device certificates storage
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "ventaro-ai.fullname" . }}-iot-certs
+  namespace: {{ .Values.global.namespace | default .Release.Namespace }}
+  labels:
+    {{- include "ventaro-ai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: iot-cert-storage
+  annotations:
+    {{- include "ventaro-ai.commonAnnotations" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.iotManager.persistence.certSize | default "1Gi" }}
+  {{- if .Values.iotManager.persistence.storageClass }}
+  storageClassName: {{ .Values.iotManager.persistence.storageClass }}
+  {{- else if .Values.global.storageClass }}
+  storageClassName: {{ .Values.global.storageClass }}
+  {{- end }}
+
+---
+{{- end }}
+
+# Backup storage PVC (if backup is enabled)
+{{- if and .Values.backup.enabled .Values.backup.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "ventaro-ai.fullname" . }}-backup-storage
+  namespace: {{ .Values.global.namespace | default .Release.Namespace }}
+  labels:
+    {{- include "ventaro-ai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backup-storage
+  annotations:
+    {{- include "ventaro-ai.commonAnnotations" . | nindent 4 }}
+    {{- with .Values.backup.persistence.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  accessModes:
+    {{- range .Values.backup.persistence.accessModes | default (list "ReadWriteOnce") }}
+    - {{ . }}
+    {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.backup.persistence.size | default "100Gi" }}
+  {{- if .Values.backup.persistence.storageClass }}
+  {{- if eq "-" .Values.backup.persistence.storageClass }}
+  storageClassName: ""
+  {{- else }}
+  storageClassName: {{ .Values.backup.persistence.storageClass }}
+  {{- end }}
+  {{- else if .Values.global.storageClass }}
+  storageClassName: {{ .Values.global.storageClass }}
+  {{- end }}
+
+---
+{{- end }}
+
+# Shared storage for file uploads and media
+{{- if .Values.persistence.shared.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "ventaro-ai.fullname" . }}-shared-storage
+  namespace: {{ .Values.global.namespace | default .Release.Namespace }}
+  labels:
+    {{- include "ventaro-ai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: shared-storage
+  annotations:
+    {{- include "ventaro-ai.commonAnnotations" . | nindent 4 }}
+    {{- with .Values.persistence.shared.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: {{ .Values.persistence.shared.size | default "50Gi" }}
+  {{- if .Values.persistence.shared.storageClass }}
+  {{- if eq "-" .Values.persistence.shared.storageClass }}
+  storageClassName: ""
+  {{- else }}
+  storageClassName: {{ .Values.persistence.shared.storageClass }}
+  {{- end }}
+  {{- else if .Values.global.storageClass }}
+  storageClassName: {{ .Values.global.storageClass }}
+  {{- end }}
+
+---
+{{- end }}
+
+# Logs storage PVC (if local log storage is enabled)
+{{- if .Values.persistence.logs.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "ventaro-ai.fullname" . }}-logs-storage
+  namespace: {{ .Values.global.namespace | default .Release.Namespace }}
+  labels:
+    {{- include "ventaro-ai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: logs-storage
+  annotations:
+    {{- include "ventaro-ai.commonAnnotations" . | nindent 4 }}
+    {{- with .Values.persistence.logs.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  accessModes:
+    {{- range .Values.persistence.logs.accessModes | default (list "ReadWriteOnce") }}
+    - {{ . }}
+    {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.logs.size | default "20Gi" }}
+  {{- if .Values.persistence.logs.storageClass }}
+  {{- if eq "-" .Values.persistence.logs.storageClass }}
+  storageClassName: ""
+  {{- else }}
+  storageClassName: {{ .Values.persistence.logs.storageClass }}
+  {{- end }}
+  {{- else if .Values.global.storageClass }}
+  storageClassName: {{ .Values.global.storageClass }}
+  {{- end }}
+
+---
+{{- end }}
+
+# Custom PVCs from values
+{{- if .Values.persistence.custom }}
+{{- range $name, $pvc := .Values.persistence.custom }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "ventaro-ai.fullname" $ }}-{{ $name }}
+  namespace: {{ $.Values.global.namespace | default $.Release.Namespace }}
+  labels:
+    {{- include "ventaro-ai.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: custom-storage
+  annotations:
+    {{- include "ventaro-ai.commonAnnotations" $ | nindent 4 }}
+    {{- with $pvc.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  accessModes:
+    {{- range $pvc.accessModes | default (list "ReadWriteOnce") }}
+    - {{ . }}
+    {{- end }}
+  resources:
+    requests:
+      storage: {{ $pvc.size | default "10Gi" }}
+  {{- if $pvc.storageClass }}
+  {{- if eq "-" $pvc.storageClass }}
+  storageClassName: ""
+  {{- else }}
+  storageClassName: {{ $pvc.storageClass }}
+  {{- end }}
+  {{- else if $.Values.global.storageClass }}
+  storageClassName: {{ $.Values.global.storageClass }}
+  {{- end }}
+  {{- if $pvc.selector }}
+  selector:
+    {{- toYaml $pvc.selector | nindent 4 }}
+  {{- end }}
+  {{- if $pvc.dataSource }}
+  dataSource:
+    {{- toYaml $pvc.dataSource | nindent 4 }}
+  {{- end }}
+  {{- if $pvc.dataSourceRef }}
+  dataSourceRef:
+    {{- toYaml $pvc.dataSourceRef | nindent 4 }}
+  {{- end }}
+
+---
+{{- end }}
+{{- end }}

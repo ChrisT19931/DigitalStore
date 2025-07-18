@@ -1,0 +1,149 @@
+apiVersion: v2
+name: ventaro-ai
+description: A comprehensive Helm chart for Ventaro AI - The ultimate AI-driven platform
+
+# Chart version - increment this on chart changes
+version: 1.0.0
+
+# Application version - this is the version of the application being deployed
+appVersion: "1.0.0"
+
+# Chart type
+type: application
+
+# Keywords for easier discovery
+keywords:
+  - ai
+  - machine-learning
+  - artificial-intelligence
+  - platform
+  - microservices
+  - kubernetes
+  - scalable
+  - cloud-native
+
+# Home page
+home: https://ventaro.ai
+
+# Source code repository
+sources:
+  - https://github.com/ventaro-ai/platform
+
+# Maintainers
+maintainers:
+  - name: Ventaro AI Team
+    email: devops@ventaro.ai
+    url: https://ventaro.ai
+
+# Dependencies
+dependencies:
+  - name: redis
+    version: "17.15.6"
+    repository: https://charts.bitnami.com/bitnami
+    condition: redis.enabled
+    tags:
+      - database
+      - cache
+  
+  - name: mongodb
+    version: "13.18.5"
+    repository: https://charts.bitnami.com/bitnami
+    condition: mongodb.enabled
+    tags:
+      - database
+      - nosql
+  
+  - name: postgresql
+    version: "12.12.10"
+    repository: https://charts.bitnami.com/bitnami
+    condition: postgresql.enabled
+    tags:
+      - database
+      - sql
+  
+  - name: prometheus
+    version: "25.6.0"
+    repository: https://prometheus-community.github.io/helm-charts
+    condition: monitoring.prometheus.enabled
+    tags:
+      - monitoring
+      - metrics
+  
+  - name: grafana
+    version: "7.0.8"
+    repository: https://grafana.github.io/helm-charts
+    condition: monitoring.grafana.enabled
+    tags:
+      - monitoring
+      - visualization
+  
+  - name: jaeger
+    version: "0.71.14"
+    repository: https://jaegertracing.github.io/helm-charts
+    condition: monitoring.jaeger.enabled
+    tags:
+      - monitoring
+      - tracing
+  
+  - name: elasticsearch
+    version: "8.5.1"
+    repository: https://helm.elastic.co
+    condition: logging.elasticsearch.enabled
+    tags:
+      - logging
+      - search
+  
+  - name: kibana
+    version: "8.5.1"
+    repository: https://helm.elastic.co
+    condition: logging.kibana.enabled
+    tags:
+      - logging
+      - visualization
+  
+  - name: fluentd
+    version: "5.8.0"
+    repository: https://fluent.github.io/helm-charts
+    condition: logging.fluentd.enabled
+    tags:
+      - logging
+      - collection
+  
+  - name: cert-manager
+    version: "1.13.2"
+    repository: https://charts.jetstack.io
+    condition: security.certManager.enabled
+    tags:
+      - security
+      - certificates
+  
+  - name: nginx-ingress
+    version: "4.8.3"
+    repository: https://kubernetes.github.io/ingress-nginx
+    condition: ingress.nginx.enabled
+    tags:
+      - ingress
+      - networking
+
+# Annotations
+annotations:
+  category: AI/ML Platform
+  licenses: MIT
+  images: |
+    - name: ventaro-ai-app
+      image: ventaro/ai-app:1.0.0
+    - name: ventaro-ai-processor
+      image: ventaro/ai-processor:1.0.0
+    - name: ventaro-edge-computing
+      image: ventaro/edge-computing:1.0.0
+    - name: ventaro-iot-manager
+      image: ventaro/iot-manager:1.0.0
+  
+# Minimum Kubernetes version
+kubeVersion: ">=1.25.0"
+
+# Deprecated flag
+deprecated: false
+
+# Icon URL
+icon: https://ventaro.ai/assets/logo.svg

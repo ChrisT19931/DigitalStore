@@ -1,0 +1,379 @@
+{{- if .Values.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "ventaro-ai.fullname" . }}-ingress
+  namespace: {{ .Values.global.namespace | default .Release.Namespace }}
+  labels:
+    {{- include "ventaro-ai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ingress
+  annotations:
+    {{- include "ventaro-ai.commonAnnotations" . | nindent 4 }}
+    # NGINX Ingress Controller annotations
+    kubernetes.io/ingress.class: {{ .Values.ingress.className | default "nginx" }}
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/ssl-redirect: "{{ .Values.ingress.tls.enabled }}"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "{{ .Values.ingress.tls.enabled }}"
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    
+    # Rate limiting
+    nginx.ingress.kubernetes.io/rate-limit: "{{ .Values.ingress.rateLimiting.rps | default 100 }}"
+    nginx.ingress.kubernetes.io/rate-limit-window: "{{ .Values.ingress.rateLimiting.window | default "1m" }}"
+    
+    # CORS configuration
+    nginx.ingress.kubernetes.io/enable-cors: "true"
+    nginx.ingress.kubernetes.io/cors-allow-origin: "{{ .Values.ingress.cors.allowOrigin | default "*" }}"
+    nginx.ingress.kubernetes.io/cors-allow-methods: "{{ .Values.ingress.cors.allowMethods | default "GET, POST, PUT, DELETE, OPTIONS" }}"
+    nginx.ingress.kubernetes.io/cors-allow-headers: "{{ .Values.ingress.cors.allowHeaders | default "DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization" }}"
+    
+    # Security headers
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      more_set_headers "X-Frame-Options: DENY";
+      more_set_headers "X-Content-Type-Options: nosniff";
+      more_set_headers "X-XSS-Protection: 1; mode=block";
+      more_set_headers "Referrer-Policy: strict-origin-when-cross-origin";
+      more_set_headers "Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' wss: https:; media-src 'self'; object-src 'none'; child-src 'self'; frame-ancestors 'none'; form-action 'self'; base-uri 'self';";
+    
+    # Load balancing and upstream configuration
+    nginx.ingress.kubernetes.io/upstream-hash-by: "$remote_addr"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "{{ .Values.ingress.timeouts.connect | default 60 }}"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "{{ .Values.ingress.timeouts.send | default 60 }}"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "{{ .Values.ingress.timeouts.read | default 60 }}"
+    nginx.ingress.kubernetes.io/proxy-body-size: "{{ .Values.ingress.maxBodySize | default "100m" }}"
+    
+    # WebSocket support
+    nginx.ingress.kubernetes.io/proxy-set-headers: |
+      X-Forwarded-For $proxy_add_x_forwarded_for;
+      X-Forwarded-Proto $scheme;
+      X-Real-IP $remote_addr;
+      Host $host;
+      Upgrade $http_upgrade;
+      Connection "upgrade";
+    
+    # Custom annotations from values
+    {{- with .Values.ingress.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+    
+    # TLS/SSL annotations
+    {{- if .Values.ingress.tls.enabled }}
+    {{- if .Values.ingress.tls.issuer }}
+    cert-manager.io/issuer: {{ .Values.ingress.tls.issuer }}
+    {{- else if .Values.ingress.tls.clusterIssuer }}
+    cert-manager.io/cluster-issuer: {{ .Values.ingress.tls.clusterIssuer }}
+    {{- end }}
+    {{- if .Values.ingress.tls.acme }}
+    cert-manager.io/acme-challenge-type: {{ .Values.ingress.tls.acme.challengeType | default "http01" }}
+    {{- end }}
+    {{- end }}
+spec:
+  {{- if .Values.ingress.className }}
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- end }}
+  
+  {{- if .Values.ingress.tls.enabled }}
+  tls:
+    {{- range .Values.ingress.hosts }}
+    - hosts:
+        - {{ .host | quote }}
+      secretName: {{ include "ventaro-ai.fullname" $ }}-tls-{{ .name | default "main" }}
+    {{- end }}
+  {{- end }}
+  
+  rules:
+    {{- range .Values.ingress.hosts }}
+    - host: {{ .host | quote }}
+      http:
+        paths:
+          # Main application routes
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "ventaro-ai.fullname" $ }}-app
+                port:
+                  number: {{ $.Values.app.service.port | default 3000 }}
+          
+          # API routes
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "ventaro-ai.fullname" $ }}-app
+                port:
+                  number: {{ $.Values.app.service.port | default 3000 }}
+          
+          # Health check endpoint
+          - path: /health
+            pathType: Exact
+            backend:
+              service:
+                name: {{ include "ventaro-ai.fullname" $ }}-app
+                port:
+                  number: {{ $.Values.app.service.port | default 3000 }}
+          
+          # Metrics endpoint (if enabled)
+          {{- if $.Values.monitoring.prometheus.enabled }}
+          - path: /metrics
+            pathType: Exact
+            backend:
+              service:
+                name: {{ include "ventaro-ai.fullname" $ }}-app
+                port:
+                  number: {{ $.Values.app.service.metricsPort | default 9090 }}
+          {{- end }}
+          
+          # AI processor routes (if enabled)
+          {{- if $.Values.features.ai.enabled }}
+          - path: /ai
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "ventaro-ai.fullname" $ }}-ai-processor
+                port:
+                  number: {{ $.Values.aiProcessor.service.port | default 3001 }}
+          {{- end }}
+          
+          # IoT manager routes (if enabled)
+          {{- if $.Values.features.iot.enabled }}
+          - path: /iot
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "ventaro-ai.fullname" $ }}-iot-manager
+                port:
+                  number: {{ $.Values.iotManager.service.port | default 3003 }}
+          
+          # MQTT WebSocket endpoint
+          - path: /mqtt
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "ventaro-ai.fullname" $ }}-iot-manager
+                port:
+                  number: {{ $.Values.iotManager.service.mqttPort | default 8883 }}
+          {{- end }}
+          
+          # Edge computing routes (if enabled)
+          {{- if $.Values.features.edge.enabled }}
+          - path: /edge
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "ventaro-ai.fullname" $ }}-edge-computing
+                port:
+                  number: {{ $.Values.edgeComputing.service.port | default 3002 }}
+          {{- end }}
+          
+          # Static assets
+          - path: /static
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "ventaro-ai.fullname" $ }}-app
+                port:
+                  number: {{ $.Values.app.service.port | default 3000 }}
+          
+          # WebSocket connections
+          - path: /ws
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "ventaro-ai.fullname" $ }}-app
+                port:
+                  number: {{ $.Values.app.service.wsPort | default 8080 }}
+          
+          # Additional custom paths
+          {{- range .paths }}
+          - path: {{ .path }}
+            pathType: {{ .pathType | default "Prefix" }}
+            backend:
+              service:
+                name: {{ .serviceName }}
+                port:
+                  number: {{ .servicePort }}
+          {{- end }}
+    {{- end }}
+
+---
+# Monitoring ingress (if enabled)
+{{- if and .Values.monitoring.prometheus.enabled .Values.ingress.monitoring.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "ventaro-ai.fullname" . }}-monitoring-ingress
+  namespace: {{ .Values.global.namespace | default .Release.Namespace }}
+  labels:
+    {{- include "ventaro-ai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: monitoring-ingress
+  annotations:
+    {{- include "ventaro-ai.commonAnnotations" . | nindent 4 }}
+    kubernetes.io/ingress.class: {{ .Values.ingress.className | default "nginx" }}
+    nginx.ingress.kubernetes.io/auth-type: basic
+    nginx.ingress.kubernetes.io/auth-secret: {{ include "ventaro-ai.fullname" . }}-monitoring-auth
+    nginx.ingress.kubernetes.io/auth-realm: "Ventaro AI Monitoring"
+    nginx.ingress.kubernetes.io/ssl-redirect: "{{ .Values.ingress.tls.enabled }}"
+spec:
+  {{- if .Values.ingress.className }}
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- end }}
+  
+  {{- if .Values.ingress.tls.enabled }}
+  tls:
+    - hosts:
+        - {{ .Values.ingress.monitoring.host | default (printf "monitoring.%s" .Values.global.domain) }}
+      secretName: {{ include "ventaro-ai.fullname" . }}-monitoring-tls
+  {{- end }}
+  
+  rules:
+    - host: {{ .Values.ingress.monitoring.host | default (printf "monitoring.%s" .Values.global.domain) }}
+      http:
+        paths:
+          # Prometheus
+          - path: /prometheus
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "ventaro-ai.fullname" . }}-prometheus-server
+                port:
+                  number: 80
+          
+          # Grafana
+          {{- if .Values.monitoring.grafana.enabled }}
+          - path: /grafana
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "ventaro-ai.fullname" . }}-grafana
+                port:
+                  number: 80
+          {{- end }}
+          
+          # Jaeger
+          {{- if .Values.monitoring.jaeger.enabled }}
+          - path: /jaeger
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "ventaro-ai.fullname" . }}-jaeger-query
+                port:
+                  number: 16686
+          {{- end }}
+---
+{{- end }}
+
+# Logging ingress (if enabled)
+{{- if and .Values.logging.kibana.enabled .Values.ingress.logging.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "ventaro-ai.fullname" . }}-logging-ingress
+  namespace: {{ .Values.global.namespace | default .Release.Namespace }}
+  labels:
+    {{- include "ventaro-ai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: logging-ingress
+  annotations:
+    {{- include "ventaro-ai.commonAnnotations" . | nindent 4 }}
+    kubernetes.io/ingress.class: {{ .Values.ingress.className | default "nginx" }}
+    nginx.ingress.kubernetes.io/auth-type: basic
+    nginx.ingress.kubernetes.io/auth-secret: {{ include "ventaro-ai.fullname" . }}-logging-auth
+    nginx.ingress.kubernetes.io/auth-realm: "Ventaro AI Logging"
+    nginx.ingress.kubernetes.io/ssl-redirect: "{{ .Values.ingress.tls.enabled }}"
+spec:
+  {{- if .Values.ingress.className }}
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- end }}
+  
+  {{- if .Values.ingress.tls.enabled }}
+  tls:
+    - hosts:
+        - {{ .Values.ingress.logging.host | default (printf "logs.%s" .Values.global.domain) }}
+      secretName: {{ include "ventaro-ai.fullname" . }}-logging-tls
+  {{- end }}
+  
+  rules:
+    - host: {{ .Values.ingress.logging.host | default (printf "logs.%s" .Values.global.domain) }}
+      http:
+        paths:
+          # Kibana
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "ventaro-ai.fullname" . }}-kibana
+                port:
+                  number: 5601
+          
+          # Elasticsearch (read-only access)
+          - path: /elasticsearch
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "ventaro-ai.fullname" . }}-elasticsearch-master
+                port:
+                  number: 9200
+---
+{{- end }}
+
+# Development ingress (if enabled)
+{{- if and .Values.development.enabled .Values.ingress.development.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "ventaro-ai.fullname" . }}-development-ingress
+  namespace: {{ .Values.global.namespace | default .Release.Namespace }}
+  labels:
+    {{- include "ventaro-ai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: development-ingress
+  annotations:
+    {{- include "ventaro-ai.commonAnnotations" . | nindent 4 }}
+    kubernetes.io/ingress.class: {{ .Values.ingress.className | default "nginx" }}
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    nginx.ingress.kubernetes.io/rewrite-target: /
+spec:
+  {{- if .Values.ingress.className }}
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- end }}
+  
+  rules:
+    - host: {{ .Values.ingress.development.host | default (printf "dev.%s" .Values.global.domain) }}
+      http:
+        paths:
+          # Development API
+          - path: /dev-api
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "ventaro-ai.fullname" . }}-app
+                port:
+                  number: {{ .Values.app.service.port | default 3000 }}
+          
+          # Hot reload endpoint
+          - path: /hot-reload
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "ventaro-ai.fullname" . }}-app
+                port:
+                  number: {{ .Values.development.hotReloadPort | default 8081 }}
+          
+          # Swagger/OpenAPI documentation
+          - path: /docs
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "ventaro-ai.fullname" . }}-app
+                port:
+                  number: {{ .Values.app.service.port | default 3000 }}
+          
+          # GraphQL Playground
+          - path: /graphql
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "ventaro-ai.fullname" . }}-app
+                port:
+                  number: {{ .Values.app.service.port | default 3000 }}
+---
+{{- end }}
+{{- end }}

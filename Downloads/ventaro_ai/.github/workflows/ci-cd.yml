@@ -1,0 +1,645 @@
+# Ventaro AI - Comprehensive CI/CD Pipeline
+# Advanced GitHub Actions workflow with multi-stage deployment, security scanning, and monitoring
+
+name: Ventaro AI CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop, feature/* ]
+  pull_request:
+    branches: [ main, develop ]
+  release:
+    types: [ published ]
+  schedule:
+    - cron: '0 2 * * 0'  # Weekly security scan
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+  NODE_VERSION: '18'
+  PYTHON_VERSION: '3.11'
+  DOCKER_BUILDKIT: 1
+  COMPOSE_DOCKER_CLI_BUILD: 1
+
+jobs:
+  # Code Quality and Security Analysis
+  code-quality:
+    name: Code Quality & Security
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+    
+    - name: Install dependencies
+      run: |
+        npm ci
+        npm audit --audit-level=high
+    
+    - name: Run ESLint
+      run: npm run lint
+    
+    - name: Run Prettier
+      run: npm run format:check
+    
+    - name: TypeScript type checking
+      run: npm run type-check
+    
+    - name: Run tests with coverage
+      run: npm run test:coverage
+    
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        token: ${{ secrets.CODECOV_TOKEN }}
+        files: ./coverage/lcov.info
+        flags: unittests
+        name: codecov-umbrella
+    
+    - name: SonarCloud Scan
+      uses: SonarSource/sonarcloud-github-action@master
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+    
+    - name: CodeQL Analysis
+      uses: github/codeql-action/init@v2
+      with:
+        languages: javascript, typescript
+        queries: security-extended,security-and-quality
+    
+    - name: Perform CodeQL Analysis
+      uses: github/codeql-action/analyze@v2
+    
+    - name: Snyk Security Scan
+      uses: snyk/actions/node@master
+      env:
+        SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+      with:
+        args: --severity-threshold=high
+    
+    - name: OWASP Dependency Check
+      uses: dependency-check/Dependency-Check_Action@main
+      with:
+        project: 'Ventaro AI'
+        path: '.'
+        format: 'ALL'
+        args: >
+          --enableRetired
+          --enableExperimental
+          --failOnCVSS 7
+    
+    - name: Upload OWASP results
+      uses: actions/upload-artifact@v3
+      with:
+        name: dependency-check-report
+        path: reports/
+
+  # Frontend Build and Test
+  frontend-build:
+    name: Frontend Build & Test
+    runs-on: ubuntu-latest
+    needs: code-quality
+    
+    strategy:
+      matrix:
+        node-version: [16, 18, 20]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Setup Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node-version }}
+        cache: 'npm'
+    
+    - name: Install dependencies
+      run: npm ci
+    
+    - name: Build frontend
+      run: |
+        npm run build:frontend
+        npm run build:storybook
+    
+    - name: Run frontend tests
+      run: |
+        npm run test:frontend
+        npm run test:e2e
+    
+    - name: Lighthouse CI
+      uses: treosh/lighthouse-ci-action@v10
+      with:
+        configPath: './lighthouserc.json'
+        uploadArtifacts: true
+        temporaryPublicStorage: true
+    
+    - name: Bundle analyzer
+      run: npm run analyze
+    
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: frontend-build-${{ matrix.node-version }}
+        path: |
+          dist/
+          build/
+          storybook-static/
+
+  # Backend Build and Test
+  backend-build:
+    name: Backend Build & Test
+    runs-on: ubuntu-latest
+    needs: code-quality
+    
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      
+      mongodb:
+        image: mongo:6
+        ports:
+          - 27017:27017
+        env:
+          MONGO_INITDB_ROOT_USERNAME: test
+          MONGO_INITDB_ROOT_PASSWORD: test
+        options: >-
+          --health-cmd "mongosh --eval 'db.runCommand(\"ping\")'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      
+      postgres:
+        image: postgres:15
+        ports:
+          - 5432:5432
+        env:
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: ventaro_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+    
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+    
+    - name: Install dependencies
+      run: |
+        npm ci
+        pip install -r requirements.txt
+    
+    - name: Run backend tests
+      env:
+        NODE_ENV: test
+        REDIS_URL: redis://localhost:6379
+        MONGODB_URL: mongodb://test:test@localhost:27017/ventaro_test
+        DATABASE_URL: postgresql://postgres:test@localhost:5432/ventaro_test
+      run: |
+        npm run test:backend
+        npm run test:integration
+        npm run test:api
+    
+    - name: Run AI/ML tests
+      run: |
+        python -m pytest tests/ai/ -v --cov=backend/ai/
+        npm run test:ai-processor
+    
+    - name: Performance tests
+      run: |
+        npm run test:performance
+        npm run test:load
+    
+    - name: Upload test results
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: backend-test-results
+        path: |
+          test-results/
+          coverage/
+
+  # Docker Build and Security Scan
+  docker-build:
+    name: Docker Build & Security Scan
+    runs-on: ubuntu-latest
+    needs: [frontend-build, backend-build]
+    permissions:
+      contents: read
+      packages: write
+      security-events: write
+    
+    strategy:
+      matrix:
+        target: [production, ai-gpu, edge, microservices]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+    
+    - name: Log in to Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=sha,prefix={{branch}}-
+          type=raw,value=latest,enable={{is_default_branch}}
+          type=raw,value=${{ matrix.target }}-latest,enable={{is_default_branch}}
+    
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        target: ${{ matrix.target }}
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+        platforms: linux/amd64,linux/arm64
+    
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ matrix.target }}-latest
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+    
+    - name: Upload Trivy scan results
+      uses: github/codeql-action/upload-sarif@v2
+      with:
+        sarif_file: 'trivy-results.sarif'
+    
+    - name: Docker Scout scan
+      uses: docker/scout-action@v1
+      with:
+        command: cves
+        image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ matrix.target }}-latest
+        sarif-file: scout-results.sarif
+    
+    - name: Cosign sign image
+      uses: sigstore/cosign-installer@v3
+    
+    - name: Sign container image
+      env:
+        COSIGN_EXPERIMENTAL: 1
+      run: |
+        cosign sign --yes ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ matrix.target }}-latest
+
+  # Infrastructure as Code Validation
+  infrastructure-validation:
+    name: Infrastructure Validation
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: 1.5.0
+    
+    - name: Terraform Format Check
+      run: terraform fmt -check -recursive
+      working-directory: ./infrastructure
+    
+    - name: Terraform Init
+      run: terraform init
+      working-directory: ./infrastructure
+    
+    - name: Terraform Validate
+      run: terraform validate
+      working-directory: ./infrastructure
+    
+    - name: Terraform Plan
+      run: terraform plan -no-color
+      working-directory: ./infrastructure
+      env:
+        TF_VAR_environment: staging
+    
+    - name: Checkov scan
+      uses: bridgecrewio/checkov-action@master
+      with:
+        directory: ./infrastructure
+        framework: terraform
+        output_format: sarif
+        output_file_path: checkov-results.sarif
+    
+    - name: Upload Checkov results
+      uses: github/codeql-action/upload-sarif@v2
+      with:
+        sarif_file: checkov-results.sarif
+    
+    - name: Validate Kubernetes manifests
+      run: |
+        kubectl --dry-run=client apply -f k8s/
+        kubeval k8s/*.yaml
+    
+    - name: Helm lint
+      run: |
+        helm lint ./helm/ventaro-ai
+        helm template ./helm/ventaro-ai --debug
+
+  # Staging Deployment
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: [docker-build, infrastructure-validation]
+    if: github.ref == 'refs/heads/develop'
+    environment:
+      name: staging
+      url: https://staging.ventaro.ai
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Setup kubectl
+      uses: azure/setup-kubectl@v3
+      with:
+        version: 'v1.28.0'
+    
+    - name: Setup Helm
+      uses: azure/setup-helm@v3
+      with:
+        version: '3.12.0'
+    
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: us-west-2
+    
+    - name: Update kubeconfig
+      run: |
+        aws eks update-kubeconfig --region us-west-2 --name ventaro-staging
+    
+    - name: Deploy to staging
+      run: |
+        helm upgrade --install ventaro-ai ./helm/ventaro-ai \
+          --namespace ventaro-ai-staging \
+          --create-namespace \
+          --set image.tag=${{ github.sha }} \
+          --set environment=staging \
+          --set ingress.hosts[0].host=staging.ventaro.ai \
+          --values ./helm/ventaro-ai/values-staging.yaml \
+          --wait --timeout=10m
+    
+    - name: Run smoke tests
+      run: |
+        npm run test:smoke -- --baseUrl=https://staging.ventaro.ai
+    
+    - name: Run security tests
+      run: |
+        npm run test:security -- --target=https://staging.ventaro.ai
+    
+    - name: Performance baseline
+      run: |
+        npm run test:performance:baseline -- --url=https://staging.ventaro.ai
+
+  # Production Deployment
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: [docker-build, infrastructure-validation]
+    if: github.event_name == 'release'
+    environment:
+      name: production
+      url: https://ventaro.ai
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Setup kubectl
+      uses: azure/setup-kubectl@v3
+      with:
+        version: 'v1.28.0'
+    
+    - name: Setup Helm
+      uses: azure/setup-helm@v3
+      with:
+        version: '3.12.0'
+    
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID_PROD }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY_PROD }}
+        aws-region: us-west-2
+    
+    - name: Update kubeconfig
+      run: |
+        aws eks update-kubeconfig --region us-west-2 --name ventaro-production
+    
+    - name: Blue-Green Deployment
+      run: |
+        # Deploy to green environment
+        helm upgrade --install ventaro-ai-green ./helm/ventaro-ai \
+          --namespace ventaro-ai-production \
+          --create-namespace \
+          --set image.tag=${{ github.event.release.tag_name }} \
+          --set environment=production \
+          --set deployment.color=green \
+          --set ingress.hosts[0].host=green.ventaro.ai \
+          --values ./helm/ventaro-ai/values-production.yaml \
+          --wait --timeout=15m
+    
+    - name: Health check green environment
+      run: |
+        npm run test:health -- --baseUrl=https://green.ventaro.ai
+        npm run test:smoke -- --baseUrl=https://green.ventaro.ai
+    
+    - name: Switch traffic to green
+      run: |
+        # Update ingress to point to green
+        kubectl patch ingress ventaro-ai-ingress -n ventaro-ai-production \
+          -p '{"spec":{"rules":[{"host":"ventaro.ai","http":{"paths":[{"path":"/","pathType":"Prefix","backend":{"service":{"name":"ventaro-ai-green","port":{"number":80}}}}]}}]}}'
+    
+    - name: Final health check
+      run: |
+        sleep 60
+        npm run test:health -- --baseUrl=https://ventaro.ai
+        npm run test:smoke -- --baseUrl=https://ventaro.ai
+    
+    - name: Cleanup blue environment
+      run: |
+        helm uninstall ventaro-ai-blue -n ventaro-ai-production || true
+    
+    - name: Update monitoring
+      run: |
+        # Update Grafana dashboards
+        kubectl apply -f monitoring/grafana-dashboards.yaml
+        
+        # Create deployment annotation in Grafana
+        curl -X POST "https://grafana.ventaro.ai/api/annotations" \
+          -H "Authorization: Bearer ${{ secrets.GRAFANA_API_KEY }}" \
+          -H "Content-Type: application/json" \
+          -d '{
+            "text": "Production deployment: ${{ github.event.release.tag_name }}",
+            "tags": ["deployment", "production"],
+            "time": '$(date +%s000)'
+          }'
+
+  # Post-deployment monitoring
+  post-deployment:
+    name: Post-deployment Monitoring
+    runs-on: ubuntu-latest
+    needs: [deploy-production]
+    if: github.event_name == 'release'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Monitor deployment
+      run: |
+        # Wait and monitor for 10 minutes
+        for i in {1..10}; do
+          echo "Monitoring iteration $i/10"
+          
+          # Check application health
+          npm run test:health -- --baseUrl=https://ventaro.ai
+          
+          # Check error rates
+          npm run test:monitoring:errors
+          
+          # Check performance metrics
+          npm run test:monitoring:performance
+          
+          sleep 60
+        done
+    
+    - name: Rollback on failure
+      if: failure()
+      run: |
+        echo "Deployment monitoring failed, initiating rollback"
+        
+        # Rollback to previous version
+        helm rollback ventaro-ai -n ventaro-ai-production
+        
+        # Wait for rollback to complete
+        kubectl rollout status deployment/ventaro-ai -n ventaro-ai-production --timeout=600s
+        
+        # Verify rollback
+        npm run test:health -- --baseUrl=https://ventaro.ai
+    
+    - name: Notify teams
+      uses: 8398a7/action-slack@v3
+      with:
+        status: ${{ job.status }}
+        channel: '#deployments'
+        webhook_url: ${{ secrets.SLACK_WEBHOOK }}
+        fields: repo,message,commit,author,action,eventName,ref,workflow
+      if: always()
+
+  # Security compliance check
+  compliance-check:
+    name: Security Compliance
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: OWASP ZAP Full Scan
+      uses: zaproxy/action-full-scan@v0.7.0
+      with:
+        target: 'https://ventaro.ai'
+        rules_file_name: '.zap/rules.tsv'
+        cmd_options: '-a'
+    
+    - name: CIS Kubernetes Benchmark
+      run: |
+        # Run kube-bench for CIS compliance
+        kubectl apply -f https://raw.githubusercontent.com/aquasecurity/kube-bench/main/job.yaml
+        kubectl wait --for=condition=complete job/kube-bench --timeout=300s
+        kubectl logs job/kube-bench
+    
+    - name: Generate compliance report
+      run: |
+        # Generate comprehensive compliance report
+        npm run compliance:generate-report
+    
+    - name: Upload compliance artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: compliance-report
+        path: |
+          compliance-report.html
+          zap-report.html
+          kube-bench-results.json
+
+  # Cleanup
+  cleanup:
+    name: Cleanup
+    runs-on: ubuntu-latest
+    needs: [deploy-production, post-deployment]
+    if: always()
+    
+    steps:
+    - name: Cleanup old images
+      run: |
+        # Keep only last 10 images
+        echo "Cleaning up old container images"
+        
+        # This would typically use a script to clean up old images
+        # from the container registry
+    
+    - name: Cleanup artifacts
+      uses: geekyeggo/delete-artifact@v2
+      with:
+        name: |
+          frontend-build-*
+          backend-test-results
+          dependency-check-report
+        failOnError: false

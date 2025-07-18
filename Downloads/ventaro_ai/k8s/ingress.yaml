@@ -1,0 +1,695 @@
+# Ventaro AI - Kubernetes Ingress Configuration
+# Advanced ingress with SSL, rate limiting, and load balancing
+
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ventaro-ingress
+  namespace: ventaro-ai
+  labels:
+    app: ventaro-ai
+    tier: ingress
+  annotations:
+    # Ingress class
+    kubernetes.io/ingress.class: "nginx"
+    
+    # SSL and certificates
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    
+    # Rate limiting
+    nginx.ingress.kubernetes.io/rate-limit: "100"
+    nginx.ingress.kubernetes.io/rate-limit-window: "1m"
+    nginx.ingress.kubernetes.io/rate-limit-connections: "10"
+    
+    # Security headers
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      more_set_headers "X-Frame-Options: DENY";
+      more_set_headers "X-Content-Type-Options: nosniff";
+      more_set_headers "X-XSS-Protection: 1; mode=block";
+      more_set_headers "Referrer-Policy: strict-origin-when-cross-origin";
+      more_set_headers "Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://unpkg.com https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' wss: https:; media-src 'self' https:; object-src 'none'; base-uri 'self'; form-action 'self'";
+      more_set_headers "Strict-Transport-Security: max-age=31536000; includeSubDomains; preload";
+    
+    # CORS configuration
+    nginx.ingress.kubernetes.io/enable-cors: "true"
+    nginx.ingress.kubernetes.io/cors-allow-origin: "https://ventaro.ai, https://www.ventaro.ai, https://app.ventaro.ai"
+    nginx.ingress.kubernetes.io/cors-allow-methods: "GET, POST, PUT, DELETE, OPTIONS, PATCH"
+    nginx.ingress.kubernetes.io/cors-allow-headers: "DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization,X-API-Key"
+    nginx.ingress.kubernetes.io/cors-expose-headers: "Content-Length,Content-Range"
+    nginx.ingress.kubernetes.io/cors-allow-credentials: "true"
+    nginx.ingress.kubernetes.io/cors-max-age: "86400"
+    
+    # Load balancing and upstream configuration
+    nginx.ingress.kubernetes.io/upstream-hash-by: "$remote_addr"
+    nginx.ingress.kubernetes.io/load-balance: "ewma"
+    nginx.ingress.kubernetes.io/upstream-keepalive-connections: "32"
+    nginx.ingress.kubernetes.io/upstream-keepalive-requests: "100"
+    nginx.ingress.kubernetes.io/upstream-keepalive-timeout: "60s"
+    
+    # Proxy settings
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-body-size: "100m"
+    nginx.ingress.kubernetes.io/proxy-buffer-size: "16k"
+    nginx.ingress.kubernetes.io/proxy-buffers-number: "8"
+    
+    # WebSocket support
+    nginx.ingress.kubernetes.io/proxy-set-headers: |
+      Host $host;
+      X-Real-IP $remote_addr;
+      X-Forwarded-For $proxy_add_x_forwarded_for;
+      X-Forwarded-Proto $scheme;
+      X-Forwarded-Host $host;
+      X-Forwarded-Port $server_port;
+      Upgrade $http_upgrade;
+      Connection $connection_upgrade;
+    
+    # Caching
+    nginx.ingress.kubernetes.io/server-snippet: |
+      location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+        add_header Vary "Accept-Encoding";
+      }
+      
+      location ~* \.(html|htm)$ {
+        expires 1h;
+        add_header Cache-Control "public, must-revalidate";
+      }
+      
+      location /api/ {
+        expires -1;
+        add_header Cache-Control "no-cache, no-store, must-revalidate";
+        add_header Pragma "no-cache";
+      }
+    
+    # Compression
+    nginx.ingress.kubernetes.io/enable-gzip: "true"
+    nginx.ingress.kubernetes.io/gzip-types: "text/plain text/css text/xml text/javascript application/javascript application/xml+rss application/json application/xml"
+    
+    # Monitoring and logging
+    nginx.ingress.kubernetes.io/enable-access-log: "true"
+    nginx.ingress.kubernetes.io/enable-rewrite-log: "false"
+    
+    # Custom error pages
+    nginx.ingress.kubernetes.io/custom-http-errors: "404,500,502,503,504"
+    nginx.ingress.kubernetes.io/default-backend: "ventaro-error-pages"
+
+spec:
+  tls:
+  - hosts:
+    - ventaro.ai
+    - www.ventaro.ai
+    - app.ventaro.ai
+    - api.ventaro.ai
+    - ai.ventaro.ai
+    - edge.ventaro.ai
+    - iot.ventaro.ai
+    secretName: ventaro-tls-secret
+  
+  rules:
+  # Main domain
+  - host: ventaro.ai
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: ventaro-app-service
+            port:
+              number: 80
+  
+  # WWW redirect
+  - host: www.ventaro.ai
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: ventaro-app-service
+            port:
+              number: 80
+  
+  # App subdomain
+  - host: app.ventaro.ai
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: ventaro-app-service
+            port:
+              number: 80
+      - path: /ws
+        pathType: Prefix
+        backend:
+          service:
+            name: ventaro-app-service
+            port:
+              number: 8080
+  
+  # API subdomain
+  - host: api.ventaro.ai
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: ventaro-app-service
+            port:
+              number: 80
+      - path: /ai
+        pathType: Prefix
+        backend:
+          service:
+            name: ventaro-ai-service
+            port:
+              number: 3001
+      - path: /iot
+        pathType: Prefix
+        backend:
+          service:
+            name: ventaro-iot-service
+            port:
+              number: 3002
+  
+  # AI processing subdomain
+  - host: ai.ventaro.ai
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: ventaro-ai-service
+            port:
+              number: 3001
+  
+  # Edge computing subdomain
+  - host: edge.ventaro.ai
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: ventaro-edge-service
+            port:
+              number: 8090
+  
+  # IoT subdomain
+  - host: iot.ventaro.ai
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: ventaro-iot-service
+            port:
+              number: 3002
+      - path: /ws
+        pathType: Prefix
+        backend:
+          service:
+            name: ventaro-iot-service
+            port:
+              number: 8080
+
+---
+# Certificate Issuer for Let's Encrypt
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-prod
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: admin@ventaro.ai
+    privateKeySecretRef:
+      name: letsencrypt-prod-key
+    solvers:
+    - http01:
+        ingress:
+          class: nginx
+          podTemplate:
+            spec:
+              nodeSelector:
+                "kubernetes.io/os": linux
+    - dns01:
+        cloudflare:
+          email: admin@ventaro.ai
+          apiTokenSecretRef:
+            name: cloudflare-api-token
+            key: api-token
+
+---
+# Staging Certificate Issuer
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-staging
+spec:
+  acme:
+    server: https://acme-staging-v02.api.letsencrypt.org/directory
+    email: admin@ventaro.ai
+    privateKeySecretRef:
+      name: letsencrypt-staging-key
+    solvers:
+    - http01:
+        ingress:
+          class: nginx
+
+---
+# Error Pages Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: ventaro-error-pages
+  namespace: ventaro-ai
+  labels:
+    app: error-pages
+spec:
+  selector:
+    app: error-pages
+  ports:
+  - port: 80
+    targetPort: 8080
+  type: ClusterIP
+
+---
+# Error Pages Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ventaro-error-pages
+  namespace: ventaro-ai
+  labels:
+    app: error-pages
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: error-pages
+  template:
+    metadata:
+      labels:
+        app: error-pages
+    spec:
+      containers:
+      - name: error-pages
+        image: nginx:alpine
+        ports:
+        - containerPort: 8080
+        volumeMounts:
+        - name: error-pages-config
+          mountPath: /etc/nginx/nginx.conf
+          subPath: nginx.conf
+        - name: error-pages-html
+          mountPath: /usr/share/nginx/html
+        resources:
+          requests:
+            memory: "32Mi"
+            cpu: "10m"
+          limits:
+            memory: "128Mi"
+            cpu: "100m"
+      volumes:
+      - name: error-pages-config
+        configMap:
+          name: error-pages-nginx-config
+      - name: error-pages-html
+        configMap:
+          name: error-pages-html
+
+---
+# Error Pages Nginx Config
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: error-pages-nginx-config
+  namespace: ventaro-ai
+data:
+  nginx.conf: |
+    events {
+        worker_connections 1024;
+    }
+    
+    http {
+        include       /etc/nginx/mime.types;
+        default_type  application/octet-stream;
+        
+        sendfile        on;
+        keepalive_timeout  65;
+        
+        server {
+            listen 8080;
+            server_name _;
+            
+            location / {
+                root /usr/share/nginx/html;
+                try_files $uri $uri.html =404;
+            }
+            
+            location = /healthz {
+                access_log off;
+                return 200 "healthy\n";
+                add_header Content-Type text/plain;
+            }
+        }
+    }
+
+---
+# Error Pages HTML
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: error-pages-html
+  namespace: ventaro-ai
+data:
+  404.html: |
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>404 - Page Not Found | Ventaro AI</title>
+        <style>
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            body {
+                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                color: white;
+                height: 100vh;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                text-align: center;
+            }
+            .container {
+                max-width: 600px;
+                padding: 2rem;
+            }
+            h1 {
+                font-size: 6rem;
+                margin-bottom: 1rem;
+                text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+            }
+            h2 {
+                font-size: 2rem;
+                margin-bottom: 1rem;
+                opacity: 0.9;
+            }
+            p {
+                font-size: 1.2rem;
+                margin-bottom: 2rem;
+                opacity: 0.8;
+            }
+            .btn {
+                display: inline-block;
+                padding: 12px 24px;
+                background: rgba(255,255,255,0.2);
+                color: white;
+                text-decoration: none;
+                border-radius: 25px;
+                transition: all 0.3s ease;
+                border: 2px solid rgba(255,255,255,0.3);
+            }
+            .btn:hover {
+                background: rgba(255,255,255,0.3);
+                transform: translateY(-2px);
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>404</h1>
+            <h2>Page Not Found</h2>
+            <p>The page you're looking for doesn't exist or has been moved.</p>
+            <a href="/" class="btn">Return to Ventaro AI</a>
+        </div>
+    </body>
+    </html>
+  
+  500.html: |
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>500 - Server Error | Ventaro AI</title>
+        <style>
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            body {
+                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%);
+                color: white;
+                height: 100vh;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                text-align: center;
+            }
+            .container {
+                max-width: 600px;
+                padding: 2rem;
+            }
+            h1 {
+                font-size: 6rem;
+                margin-bottom: 1rem;
+                text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+            }
+            h2 {
+                font-size: 2rem;
+                margin-bottom: 1rem;
+                opacity: 0.9;
+            }
+            p {
+                font-size: 1.2rem;
+                margin-bottom: 2rem;
+                opacity: 0.8;
+            }
+            .btn {
+                display: inline-block;
+                padding: 12px 24px;
+                background: rgba(255,255,255,0.2);
+                color: white;
+                text-decoration: none;
+                border-radius: 25px;
+                transition: all 0.3s ease;
+                border: 2px solid rgba(255,255,255,0.3);
+            }
+            .btn:hover {
+                background: rgba(255,255,255,0.3);
+                transform: translateY(-2px);
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>500</h1>
+            <h2>Server Error</h2>
+            <p>Something went wrong on our end. Our AI is working to fix it!</p>
+            <a href="/" class="btn">Return to Ventaro AI</a>
+        </div>
+    </body>
+    </html>
+  
+  502.html: |
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>502 - Bad Gateway | Ventaro AI</title>
+        <style>
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            body {
+                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                background: linear-gradient(135deg, #ffa726 0%, #ff7043 100%);
+                color: white;
+                height: 100vh;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                text-align: center;
+            }
+            .container {
+                max-width: 600px;
+                padding: 2rem;
+            }
+            h1 {
+                font-size: 6rem;
+                margin-bottom: 1rem;
+                text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+            }
+            h2 {
+                font-size: 2rem;
+                margin-bottom: 1rem;
+                opacity: 0.9;
+            }
+            p {
+                font-size: 1.2rem;
+                margin-bottom: 2rem;
+                opacity: 0.8;
+            }
+            .btn {
+                display: inline-block;
+                padding: 12px 24px;
+                background: rgba(255,255,255,0.2);
+                color: white;
+                text-decoration: none;
+                border-radius: 25px;
+                transition: all 0.3s ease;
+                border: 2px solid rgba(255,255,255,0.3);
+            }
+            .btn:hover {
+                background: rgba(255,255,255,0.3);
+                transform: translateY(-2px);
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>502</h1>
+            <h2>Bad Gateway</h2>
+            <p>We're experiencing connectivity issues. Please try again in a moment.</p>
+            <a href="/" class="btn">Return to Ventaro AI</a>
+        </div>
+    </body>
+    </html>
+  
+  503.html: |
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>503 - Service Unavailable | Ventaro AI</title>
+        <style>
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            body {
+                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                background: linear-gradient(135deg, #9c88ff 0%, #8c7ae6 100%);
+                color: white;
+                height: 100vh;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                text-align: center;
+            }
+            .container {
+                max-width: 600px;
+                padding: 2rem;
+            }
+            h1 {
+                font-size: 6rem;
+                margin-bottom: 1rem;
+                text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+            }
+            h2 {
+                font-size: 2rem;
+                margin-bottom: 1rem;
+                opacity: 0.9;
+            }
+            p {
+                font-size: 1.2rem;
+                margin-bottom: 2rem;
+                opacity: 0.8;
+            }
+            .btn {
+                display: inline-block;
+                padding: 12px 24px;
+                background: rgba(255,255,255,0.2);
+                color: white;
+                text-decoration: none;
+                border-radius: 25px;
+                transition: all 0.3s ease;
+                border: 2px solid rgba(255,255,255,0.3);
+            }
+            .btn:hover {
+                background: rgba(255,255,255,0.3);
+                transform: translateY(-2px);
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>503</h1>
+            <h2>Service Unavailable</h2>
+            <p>Ventaro AI is temporarily unavailable for maintenance. We'll be back soon!</p>
+            <a href="/" class="btn">Return to Ventaro AI</a>
+        </div>
+    </body>
+    </html>
+  
+  504.html: |
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>504 - Gateway Timeout | Ventaro AI</title>
+        <style>
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            body {
+                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                background: linear-gradient(135deg, #74b9ff 0%, #0984e3 100%);
+                color: white;
+                height: 100vh;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                text-align: center;
+            }
+            .container {
+                max-width: 600px;
+                padding: 2rem;
+            }
+            h1 {
+                font-size: 6rem;
+                margin-bottom: 1rem;
+                text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+            }
+            h2 {
+                font-size: 2rem;
+                margin-bottom: 1rem;
+                opacity: 0.9;
+            }
+            p {
+                font-size: 1.2rem;
+                margin-bottom: 2rem;
+                opacity: 0.8;
+            }
+            .btn {
+                display: inline-block;
+                padding: 12px 24px;
+                background: rgba(255,255,255,0.2);
+                color: white;
+                text-decoration: none;
+                border-radius: 25px;
+                transition: all 0.3s ease;
+                border: 2px solid rgba(255,255,255,0.3);
+            }
+            .btn:hover {
+                background: rgba(255,255,255,0.3);
+                transform: translateY(-2px);
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>504</h1>
+            <h2>Gateway Timeout</h2>
+            <p>The request took too long to process. Please try again.</p>
+            <a href="/" class="btn">Return to Ventaro AI</a>
+        </div>
+    </body>
+    </html>

@@ -1,0 +1,338 @@
+{{- if .Values.app.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "ventaro-ai.fullname" . }}-app-service
+  namespace: {{ .Values.global.namespace | default .Release.Namespace }}
+  labels:
+    {{- include "ventaro-ai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: main-app
+  {{- with .Values.app.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.app.service.type }}
+  ports:
+    - port: {{ .Values.app.service.port }}
+      targetPort: {{ .Values.app.service.targetPort }}
+      protocol: TCP
+      name: http
+    - port: 9090
+      targetPort: 9090
+      protocol: TCP
+      name: metrics
+  selector:
+    {{- include "ventaro-ai.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: main-app
+{{- end }}
+
+---
+{{- if .Values.aiProcessor.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "ventaro-ai.fullname" . }}-ai-service
+  namespace: {{ .Values.global.namespace | default .Release.Namespace }}
+  labels:
+    {{- include "ventaro-ai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ai-processor
+  {{- with .Values.aiProcessor.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.aiProcessor.service.type }}
+  ports:
+    - port: {{ .Values.aiProcessor.service.port }}
+      targetPort: {{ .Values.aiProcessor.service.targetPort }}
+      protocol: TCP
+      name: http
+    - port: 9090
+      targetPort: 9090
+      protocol: TCP
+      name: metrics
+  selector:
+    {{- include "ventaro-ai.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: ai-processor
+{{- end }}
+
+---
+{{- if .Values.edgeComputing.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "ventaro-ai.fullname" . }}-edge-service
+  namespace: {{ .Values.global.namespace | default .Release.Namespace }}
+  labels:
+    {{- include "ventaro-ai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: edge-computing
+  {{- with .Values.edgeComputing.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.edgeComputing.service.type }}
+  ports:
+    - port: {{ .Values.edgeComputing.service.port }}
+      targetPort: {{ .Values.edgeComputing.service.targetPort }}
+      protocol: TCP
+      name: http
+    - port: 9090
+      targetPort: 9090
+      protocol: TCP
+      name: metrics
+  selector:
+    {{- include "ventaro-ai.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: edge-computing
+{{- end }}
+
+---
+{{- if .Values.iotManager.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "ventaro-ai.fullname" . }}-iot-service
+  namespace: {{ .Values.global.namespace | default .Release.Namespace }}
+  labels:
+    {{- include "ventaro-ai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: iot-manager
+  {{- with .Values.iotManager.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.iotManager.service.type }}
+  ports:
+    - port: {{ .Values.iotManager.service.port }}
+      targetPort: {{ .Values.iotManager.service.targetPort }}
+      protocol: TCP
+      name: http
+    - port: 1883
+      targetPort: 1883
+      protocol: TCP
+      name: mqtt
+    - port: 8083
+      targetPort: 8083
+      protocol: TCP
+      name: websocket
+    - port: 9090
+      targetPort: 9090
+      protocol: TCP
+      name: metrics
+  selector:
+    {{- include "ventaro-ai.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: iot-manager
+{{- end }}
+
+---
+# Headless service for StatefulSets and service discovery
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "ventaro-ai.fullname" . }}-headless
+  namespace: {{ .Values.global.namespace | default .Release.Namespace }}
+  labels:
+    {{- include "ventaro-ai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: headless
+spec:
+  clusterIP: None
+  ports:
+    - port: 80
+      targetPort: 3000
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "ventaro-ai.selectorLabels" . | nindent 4 }}
+
+---
+# External service for load balancer (if needed)
+{{- if eq .Values.app.service.type "LoadBalancer" }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "ventaro-ai.fullname" . }}-external
+  namespace: {{ .Values.global.namespace | default .Release.Namespace }}
+  labels:
+    {{- include "ventaro-ai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: external
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+    service.beta.kubernetes.io/aws-load-balancer-backend-protocol: "http"
+    service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled: "true"
+    service.beta.kubernetes.io/aws-load-balancer-ssl-cert: "{{ .Values.global.tls.secretName }}"
+    service.beta.kubernetes.io/aws-load-balancer-ssl-ports: "https"
+spec:
+  type: LoadBalancer
+  ports:
+    - port: 80
+      targetPort: 3000
+      protocol: TCP
+      name: http
+    - port: 443
+      targetPort: 3000
+      protocol: TCP
+      name: https
+  selector:
+    {{- include "ventaro-ai.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: main-app
+{{- end }}
+
+---
+# Service Monitor for Prometheus scraping
+{{- if .Values.monitoring.prometheus.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "ventaro-ai.fullname" . }}-metrics
+  namespace: {{ .Values.global.namespace | default .Release.Namespace }}
+  labels:
+    {{- include "ventaro-ai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: monitoring
+spec:
+  selector:
+    matchLabels:
+      {{- include "ventaro-ai.selectorLabels" . | nindent 6 }}
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 30s
+      scrapeTimeout: 10s
+      honorLabels: true
+      metricRelabelings:
+        - sourceLabels: [__name__]
+          regex: 'go_.*'
+          action: drop
+        - sourceLabels: [__name__]
+          regex: 'promhttp_.*'
+          action: drop
+  namespaceSelector:
+    matchNames:
+      - {{ .Values.global.namespace | default .Release.Namespace }}
+{{- end }}
+
+---
+# Pod Monitor for additional metrics collection
+{{- if .Values.monitoring.prometheus.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: {{ include "ventaro-ai.fullname" . }}-pod-metrics
+  namespace: {{ .Values.global.namespace | default .Release.Namespace }}
+  labels:
+    {{- include "ventaro-ai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: monitoring
+spec:
+  selector:
+    matchLabels:
+      {{- include "ventaro-ai.selectorLabels" . | nindent 6 }}
+  podMetricsEndpoints:
+    - port: metrics
+      path: /metrics
+      interval: 30s
+      scrapeTimeout: 10s
+      honorLabels: true
+      relabelings:
+        - sourceLabels: [__meta_kubernetes_pod_name]
+          targetLabel: pod
+        - sourceLabels: [__meta_kubernetes_pod_container_name]
+          targetLabel: container
+        - sourceLabels: [__meta_kubernetes_namespace]
+          targetLabel: namespace
+  namespaceSelector:
+    matchNames:
+      - {{ .Values.global.namespace | default .Release.Namespace }}
+{{- end }}
+
+---
+# Network Policy for service communication
+{{- if .Values.security.networkPolicies.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "ventaro-ai.fullname" . }}-service-network-policy
+  namespace: {{ .Values.global.namespace | default .Release.Namespace }}
+  labels:
+    {{- include "ventaro-ai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: security
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "ventaro-ai.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow ingress from ingress controller
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 3000
+        - protocol: TCP
+          port: 5000
+        - protocol: TCP
+          port: 8080
+        - protocol: TCP
+          port: 9090
+    # Allow ingress from same namespace
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: {{ .Values.global.namespace | default .Release.Namespace }}
+      ports:
+        - protocol: TCP
+          port: 3000
+        - protocol: TCP
+          port: 5000
+        - protocol: TCP
+          port: 8080
+        - protocol: TCP
+          port: 9090
+        - protocol: TCP
+          port: 1883
+        - protocol: TCP
+          port: 8083
+    # Allow ingress from monitoring namespace
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: monitoring
+      ports:
+        - protocol: TCP
+          port: 9090
+  egress:
+    # Allow egress to DNS
+    - to: []
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # Allow egress to databases
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: {{ .Values.global.namespace | default .Release.Namespace }}
+      ports:
+        - protocol: TCP
+          port: 5432  # PostgreSQL
+        - protocol: TCP
+          port: 6379  # Redis
+        - protocol: TCP
+          port: 27017 # MongoDB
+        - protocol: TCP
+          port: 8086  # InfluxDB
+    # Allow egress to external APIs (HTTPS)
+    - to: []
+      ports:
+        - protocol: TCP
+          port: 443
+    # Allow egress to external APIs (HTTP)
+    - to: []
+      ports:
+        - protocol: TCP
+          port: 80
+{{- end }}

@@ -1,0 +1,239 @@
+🚀 Ventaro AI has been successfully deployed!
+
+{{- if .Values.ingress.enabled }}
+🌐 Application URLs:
+{{- range .Values.ingress.hosts }}
+  - Main Application: {{ if $.Values.ingress.tls.enabled }}https{{ else }}http{{ end }}://{{ .host }}
+  - API Endpoint: {{ if $.Values.ingress.tls.enabled }}https{{ else }}http{{ end }}://{{ .host }}/api
+  - Health Check: {{ if $.Values.ingress.tls.enabled }}https{{ else }}http{{ end }}://{{ .host }}/health
+{{- end }}
+{{- else }}
+🔧 To access the application, you need to set up port forwarding:
+  kubectl port-forward --namespace {{ .Values.global.namespace | default .Release.Namespace }} svc/{{ include "ventaro-ai.fullname" . }}-app {{ .Values.app.service.port | default 3000 }}:{{ .Values.app.service.port | default 3000 }}
+  
+  Then visit: http://localhost:{{ .Values.app.service.port | default 3000 }}
+{{- end }}
+
+{{- if .Values.features.ai.enabled }}
+🤖 AI Features:
+  - AI Processor: {{ .Values.aiProcessor.replicas | default 1 }} replica(s) deployed
+  {{- if .Values.ingress.enabled }}
+  {{- range .Values.ingress.hosts }}
+  - AI API: {{ if $.Values.ingress.tls.enabled }}https{{ else }}http{{ end }}://{{ .host }}/ai
+  {{- end }}
+  {{- else }}
+  - AI API: kubectl port-forward svc/{{ include "ventaro-ai.fullname" . }}-ai-processor {{ .Values.aiProcessor.service.port | default 3001 }}:{{ .Values.aiProcessor.service.port | default 3001 }}
+  {{- end }}
+  {{- if .Values.aiProcessor.autoscaling.enabled }}
+  - Auto-scaling: {{ .Values.aiProcessor.autoscaling.minReplicas | default 1 }}-{{ .Values.aiProcessor.autoscaling.maxReplicas | default 5 }} replicas
+  {{- end }}
+{{- end }}
+
+{{- if .Values.features.iot.enabled }}
+🌐 IoT Features:
+  - IoT Manager: {{ .Values.iotManager.replicas | default 1 }} replica(s) deployed
+  {{- if .Values.ingress.enabled }}
+  {{- range .Values.ingress.hosts }}
+  - IoT API: {{ if $.Values.ingress.tls.enabled }}https{{ else }}http{{ end }}://{{ .host }}/iot
+  - MQTT WebSocket: {{ if $.Values.ingress.tls.enabled }}wss{{ else }}ws{{ end }}://{{ .host }}/mqtt
+  {{- end }}
+  {{- else }}
+  - IoT API: kubectl port-forward svc/{{ include "ventaro-ai.fullname" . }}-iot-manager {{ .Values.iotManager.service.port | default 3003 }}:{{ .Values.iotManager.service.port | default 3003 }}
+  - MQTT: kubectl port-forward svc/{{ include "ventaro-ai.fullname" . }}-iot-manager {{ .Values.iotManager.service.mqttPort | default 8883 }}:{{ .Values.iotManager.service.mqttPort | default 8883 }}
+  {{- end }}
+{{- end }}
+
+{{- if .Values.features.edge.enabled }}
+⚡ Edge Computing:
+  - Edge Computing: {{ .Values.edgeComputing.replicas | default 1 }} replica(s) deployed
+  {{- if .Values.ingress.enabled }}
+  {{- range .Values.ingress.hosts }}
+  - Edge API: {{ if $.Values.ingress.tls.enabled }}https{{ else }}http{{ end }}://{{ .host }}/edge
+  {{- end }}
+  {{- else }}
+  - Edge API: kubectl port-forward svc/{{ include "ventaro-ai.fullname" . }}-edge-computing {{ .Values.edgeComputing.service.port | default 3002 }}:{{ .Values.edgeComputing.service.port | default 3002 }}
+  {{- end }}
+{{- end }}
+
+{{- if .Values.monitoring.prometheus.enabled }}
+📊 Monitoring & Observability:
+  {{- if and .Values.ingress.enabled .Values.ingress.monitoring.enabled }}
+  - Prometheus: {{ if .Values.ingress.tls.enabled }}https{{ else }}http{{ end }}://{{ .Values.ingress.monitoring.host | default (printf "monitoring.%s" .Values.global.domain) }}/prometheus
+  {{- if .Values.monitoring.grafana.enabled }}
+  - Grafana: {{ if .Values.ingress.tls.enabled }}https{{ else }}http{{ end }}://{{ .Values.ingress.monitoring.host | default (printf "monitoring.%s" .Values.global.domain) }}/grafana
+  {{- end }}
+  {{- if .Values.monitoring.jaeger.enabled }}
+  - Jaeger: {{ if .Values.ingress.tls.enabled }}https{{ else }}http{{ end }}://{{ .Values.ingress.monitoring.host | default (printf "monitoring.%s" .Values.global.domain) }}/jaeger
+  {{- end }}
+  {{- else }}
+  - Prometheus: kubectl port-forward svc/{{ include "ventaro-ai.fullname" . }}-prometheus-server 9090:80
+  {{- if .Values.monitoring.grafana.enabled }}
+  - Grafana: kubectl port-forward svc/{{ include "ventaro-ai.fullname" . }}-grafana 3000:80
+  {{- end }}
+  {{- if .Values.monitoring.jaeger.enabled }}
+  - Jaeger: kubectl port-forward svc/{{ include "ventaro-ai.fullname" . }}-jaeger-query 16686:16686
+  {{- end }}
+  {{- end }}
+{{- end }}
+
+{{- if .Values.logging.kibana.enabled }}
+📝 Logging:
+  {{- if and .Values.ingress.enabled .Values.ingress.logging.enabled }}
+  - Kibana: {{ if .Values.ingress.tls.enabled }}https{{ else }}http{{ end }}://{{ .Values.ingress.logging.host | default (printf "logs.%s" .Values.global.domain) }}
+  {{- else }}
+  - Kibana: kubectl port-forward svc/{{ include "ventaro-ai.fullname" . }}-kibana 5601:5601
+  {{- end }}
+{{- end }}
+
+{{- if .Values.development.enabled }}
+🛠️  Development Tools:
+  {{- if and .Values.ingress.enabled .Values.ingress.development.enabled }}
+  - Development API: {{ if .Values.ingress.tls.enabled }}https{{ else }}http{{ end }}://{{ .Values.ingress.development.host | default (printf "dev.%s" .Values.global.domain) }}/dev-api
+  - API Documentation: {{ if .Values.ingress.tls.enabled }}https{{ else }}http{{ end }}://{{ .Values.ingress.development.host | default (printf "dev.%s" .Values.global.domain) }}/docs
+  - GraphQL Playground: {{ if .Values.ingress.tls.enabled }}https{{ else }}http{{ end }}://{{ .Values.ingress.development.host | default (printf "dev.%s" .Values.global.domain) }}/graphql
+  {{- else }}
+  - Hot Reload: kubectl port-forward svc/{{ include "ventaro-ai.fullname" . }}-app {{ .Values.development.hotReloadPort | default 8081 }}:{{ .Values.development.hotReloadPort | default 8081 }}
+  {{- end }}
+{{- end }}
+
+🔐 Security & Authentication:
+{{- if .Values.config.auth.jwtSecret }}
+  ✅ JWT authentication configured
+{{- end }}
+{{- if .Values.ingress.tls.enabled }}
+  ✅ TLS/SSL encryption enabled
+{{- end }}
+{{- if .Values.security.networkPolicies.enabled }}
+  ✅ Network policies enabled
+{{- end }}
+{{- if .Values.security.podSecurityPolicy.enabled }}
+  ✅ Pod security policies enabled
+{{- end }}
+
+💾 Data Storage:
+{{- if .Values.databases.postgresql.enabled }}
+  - PostgreSQL: {{ include "ventaro-ai.fullname" . }}-postgresql
+{{- end }}
+{{- if .Values.databases.mongodb.enabled }}
+  - MongoDB: {{ include "ventaro-ai.fullname" . }}-mongodb
+{{- end }}
+{{- if .Values.databases.redis.enabled }}
+  - Redis: {{ include "ventaro-ai.fullname" . }}-redis-master
+{{- end }}
+{{- if .Values.databases.influxdb.enabled }}
+  - InfluxDB: {{ include "ventaro-ai.fullname" . }}-influxdb
+{{- end }}
+
+{{- if .Values.backup.enabled }}
+💾 Backup & Recovery:
+  - Backup schedule: {{ .Values.backup.schedule | default "0 2 * * *" }}
+  - Retention: {{ .Values.backup.retention | default "30d" }}
+  {{- if .Values.backup.s3.enabled }}
+  - S3 backup: {{ .Values.backup.s3.bucket }}
+  {{- end }}
+{{- end }}
+
+{{- if .Values.autoscaling.enabled }}
+📈 Auto-scaling:
+  - Main app: {{ .Values.autoscaling.minReplicas | default 2 }}-{{ .Values.autoscaling.maxReplicas | default 10 }} replicas
+  {{- if and .Values.features.ai.enabled .Values.aiProcessor.autoscaling.enabled }}
+  - AI processor: {{ .Values.aiProcessor.autoscaling.minReplicas | default 1 }}-{{ .Values.aiProcessor.autoscaling.maxReplicas | default 5 }} replicas
+  {{- end }}
+{{- end }}
+
+{{- if .Values.costOptimization.spotInstances.enabled }}
+💰 Cost Optimization:
+  ✅ Spot instances enabled ({{ .Values.costOptimization.spotInstances.percentage | default 50 }}% of workload)
+  {{- if .Values.costOptimization.vpa.enabled }}
+  ✅ Vertical Pod Autoscaler enabled
+  {{- end }}
+{{- end }}
+
+📋 Useful Commands:
+
+  # Check deployment status
+  kubectl get pods -n {{ .Values.global.namespace | default .Release.Namespace }}
+  
+  # View application logs
+  kubectl logs -f deployment/{{ include "ventaro-ai.fullname" . }}-app -n {{ .Values.global.namespace | default .Release.Namespace }}
+  
+  # Scale the application
+  kubectl scale deployment {{ include "ventaro-ai.fullname" . }}-app --replicas=3 -n {{ .Values.global.namespace | default .Release.Namespace }}
+  
+  # Update the deployment
+  helm upgrade {{ .Release.Name }} ventaro-ai/ventaro-ai -n {{ .Values.global.namespace | default .Release.Namespace }}
+  
+  # Check resource usage
+  kubectl top pods -n {{ .Values.global.namespace | default .Release.Namespace }}
+  
+  {{- if .Values.monitoring.prometheus.enabled }}
+  # Port forward to Prometheus
+  kubectl port-forward svc/{{ include "ventaro-ai.fullname" . }}-prometheus-server 9090:80 -n {{ .Values.global.namespace | default .Release.Namespace }}
+  {{- end }}
+  
+  {{- if .Values.monitoring.grafana.enabled }}
+  # Get Grafana admin password
+  kubectl get secret {{ include "ventaro-ai.fullname" . }}-grafana -o jsonpath="{.data.admin-password}" -n {{ .Values.global.namespace | default .Release.Namespace }} | base64 --decode
+  {{- end }}
+
+{{- if .Values.features.ai.enabled }}
+🤖 AI Model Management:
+  
+  # Check AI model storage
+  kubectl get pvc {{ include "ventaro-ai.fullname" . }}-ai-models -n {{ .Values.global.namespace | default .Release.Namespace }}
+  
+  # View AI processor logs
+  kubectl logs -f deployment/{{ include "ventaro-ai.fullname" . }}-ai-processor -n {{ .Values.global.namespace | default .Release.Namespace }}
+{{- end }}
+
+{{- if .Values.features.iot.enabled }}
+🌐 IoT Device Management:
+  
+  # Check IoT manager status
+  kubectl get pods -l app.kubernetes.io/component=iot-manager -n {{ .Values.global.namespace | default .Release.Namespace }}
+  
+  # View MQTT broker logs
+  kubectl logs -f deployment/{{ include "ventaro-ai.fullname" . }}-iot-manager -n {{ .Values.global.namespace | default .Release.Namespace }}
+{{- end }}
+
+{{- if .Values.backup.enabled }}
+💾 Backup Operations:
+  
+  # Check backup status
+  kubectl get backups -n {{ .Values.global.namespace | default .Release.Namespace }}
+  
+  # Trigger manual backup
+  kubectl create job --from=cronjob/{{ include "ventaro-ai.fullname" . }}-backup manual-backup-$(date +%s) -n {{ .Values.global.namespace | default .Release.Namespace }}
+{{- end }}
+
+🔍 Troubleshooting:
+  
+  # Check all resources
+  kubectl get all -n {{ .Values.global.namespace | default .Release.Namespace }}
+  
+  # Describe problematic pods
+  kubectl describe pod <pod-name> -n {{ .Values.global.namespace | default .Release.Namespace }}
+  
+  # Check events
+  kubectl get events --sort-by=.metadata.creationTimestamp -n {{ .Values.global.namespace | default .Release.Namespace }}
+  
+  # Check resource quotas
+  kubectl describe resourcequota -n {{ .Values.global.namespace | default .Release.Namespace }}
+
+{{- if .Values.development.enabled }}
+⚠️  Development Mode Notice:
+  This deployment is running in development mode with additional debugging features enabled.
+  Make sure to disable development mode in production environments.
+{{- end }}
+
+{{- if not .Values.ingress.tls.enabled }}
+⚠️  Security Notice:
+  TLS/SSL is not enabled. Consider enabling HTTPS for production deployments.
+{{- end }}
+
+📚 Documentation:
+  - Helm Chart: https://github.com/ventaro-ai/helm-charts
+  - API Documentation: {{ if .Values.ingress.enabled }}{{ if .Values.ingress.tls.enabled }}https{{ else }}http{{ end }}://{{ (index .Values.ingress.hosts 0).host }}/docs{{ else }}http://localhost:{{ .Values.app.service.port | default 3000 }}/docs{{ end }}
+  - Support: https://ventaro.ai/support
+
+🎉 Happy coding with Ventaro AI!

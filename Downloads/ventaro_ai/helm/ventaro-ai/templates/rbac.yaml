@@ -1,0 +1,465 @@
+{{- if .Values.rbac.create }}
+# Main application ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "ventaro-ai.clusterRoleName" . }}
+  labels:
+    {{- include "ventaro-ai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: rbac
+  annotations:
+    {{- include "ventaro-ai.commonAnnotations" . | nindent 4 }}
+rules:
+  # Basic pod and service discovery
+  - apiGroups: [""]
+    resources: ["pods", "services", "endpoints", "configmaps", "secrets"]
+    verbs: ["get", "list", "watch"]
+  
+  # Node information for resource monitoring
+  - apiGroups: [""]
+    resources: ["nodes", "nodes/metrics", "nodes/stats"]
+    verbs: ["get", "list", "watch"]
+  
+  # Events for logging and monitoring
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["get", "list", "watch", "create"]
+  
+  # Namespace information
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list", "watch"]
+  
+  # Deployment and ReplicaSet information
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets", "daemonsets", "statefulsets"]
+    verbs: ["get", "list", "watch"]
+  
+  # Ingress information
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["get", "list", "watch"]
+  
+  # Custom Resource Definitions (if using custom resources)
+  - apiGroups: ["apiextensions.k8s.io"]
+    resources: ["customresourcedefinitions"]
+    verbs: ["get", "list", "watch"]
+  
+  # Metrics and monitoring
+  - apiGroups: ["metrics.k8s.io"]
+    resources: ["nodes", "pods"]
+    verbs: ["get", "list"]
+  
+  {{- if .Values.features.ai.enabled }}
+  # AI-specific permissions
+  - apiGroups: ["batch"]
+    resources: ["jobs", "cronjobs"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  {{- end }}
+  
+  {{- if .Values.features.iot.enabled }}
+  # IoT device management
+  - apiGroups: [""]
+    resources: ["persistentvolumes", "persistentvolumeclaims"]
+    verbs: ["get", "list", "watch"]
+  {{- end }}
+  
+  {{- if .Values.rbac.additionalRules }}
+  # Additional custom rules
+  {{- toYaml .Values.rbac.additionalRules | nindent 2 }}
+  {{- end }}
+
+---
+# Main application ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "ventaro-ai.clusterRoleName" . }}
+  labels:
+    {{- include "ventaro-ai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: rbac
+  annotations:
+    {{- include "ventaro-ai.commonAnnotations" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "ventaro-ai.clusterRoleName" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "ventaro-ai.serviceAccountName" . }}
+    namespace: {{ .Values.global.namespace | default .Release.Namespace }}
+
+---
+# Namespace-specific Role for application management
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "ventaro-ai.fullname" . }}-app-manager
+  namespace: {{ .Values.global.namespace | default .Release.Namespace }}
+  labels:
+    {{- include "ventaro-ai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: rbac
+  annotations:
+    {{- include "ventaro-ai.commonAnnotations" . | nindent 4 }}
+rules:
+  # Full access to application resources in namespace
+  - apiGroups: [""]
+    resources: ["pods", "services", "endpoints", "configmaps", "secrets", "persistentvolumeclaims"]
+    verbs: ["*"]
+  
+  # Deployment management
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets", "statefulsets", "daemonsets"]
+    verbs: ["*"]
+  
+  # Ingress management
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses", "networkpolicies"]
+    verbs: ["*"]
+  
+  # HPA and scaling
+  - apiGroups: ["autoscaling"]
+    resources: ["horizontalpodautoscalers"]
+    verbs: ["*"]
+  
+  # Pod disruption budgets
+  - apiGroups: ["policy"]
+    resources: ["poddisruptionbudgets"]
+    verbs: ["*"]
+  
+  # Service monitors for Prometheus
+  - apiGroups: ["monitoring.coreos.com"]
+    resources: ["servicemonitors", "podmonitors"]
+    verbs: ["*"]
+
+---
+# Application manager RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "ventaro-ai.fullname" . }}-app-manager
+  namespace: {{ .Values.global.namespace | default .Release.Namespace }}
+  labels:
+    {{- include "ventaro-ai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: rbac
+  annotations:
+    {{- include "ventaro-ai.commonAnnotations" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "ventaro-ai.fullname" . }}-app-manager
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "ventaro-ai.serviceAccountName" . }}
+    namespace: {{ .Values.global.namespace | default .Release.Namespace }}
+
+---
+{{- end }}
+
+# AI Processor RBAC (if enabled)
+{{- if and .Values.features.ai.enabled .Values.rbac.create }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "ventaro-ai.fullname" . }}-ai-processor
+  namespace: {{ .Values.global.namespace | default .Release.Namespace }}
+  labels:
+    {{- include "ventaro-ai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ai-rbac
+  annotations:
+    {{- include "ventaro-ai.commonAnnotations" . | nindent 4 }}
+rules:
+  # AI job management
+  - apiGroups: ["batch"]
+    resources: ["jobs", "cronjobs"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  
+  # GPU resource access
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list", "watch"]
+    resourceNames: ["nvidia.com/gpu"]
+  
+  # Model storage access
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+  
+  # ConfigMaps for model configuration
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+    resourceNames: ["{{ include "ventaro-ai.fullname" . }}-ai-*"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "ventaro-ai.fullname" . }}-ai-processor
+  namespace: {{ .Values.global.namespace | default .Release.Namespace }}
+  labels:
+    {{- include "ventaro-ai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ai-rbac
+  annotations:
+    {{- include "ventaro-ai.commonAnnotations" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "ventaro-ai.fullname" . }}-ai-processor
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "ventaro-ai.fullname" . }}-ai-processor
+    namespace: {{ .Values.global.namespace | default .Release.Namespace }}
+---
+{{- end }}
+
+# IoT Manager RBAC (if enabled)
+{{- if and .Values.features.iot.enabled .Values.rbac.create }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "ventaro-ai.fullname" . }}-iot-manager
+  namespace: {{ .Values.global.namespace | default .Release.Namespace }}
+  labels:
+    {{- include "ventaro-ai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: iot-rbac
+  annotations:
+    {{- include "ventaro-ai.commonAnnotations" . | nindent 4 }}
+rules:
+  # IoT device secrets management
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+    resourceNames: ["{{ include "ventaro-ai.fullname" . }}-iot-*"]
+  
+  # Device configuration
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+    resourceNames: ["{{ include "ventaro-ai.fullname" . }}-iot-*"]
+  
+  # Network policies for IoT security
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["networkpolicies"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+  
+  # Service management for MQTT/CoAP
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "ventaro-ai.fullname" . }}-iot-manager
+  namespace: {{ .Values.global.namespace | default .Release.Namespace }}
+  labels:
+    {{- include "ventaro-ai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: iot-rbac
+  annotations:
+    {{- include "ventaro-ai.commonAnnotations" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "ventaro-ai.fullname" . }}-iot-manager
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "ventaro-ai.fullname" . }}-iot-manager
+    namespace: {{ .Values.global.namespace | default .Release.Namespace }}
+---
+{{- end }}
+
+# Edge Computing RBAC (if enabled)
+{{- if and .Values.features.edge.enabled .Values.rbac.create }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "ventaro-ai.fullname" . }}-edge-computing
+  labels:
+    {{- include "ventaro-ai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: edge-rbac
+  annotations:
+    {{- include "ventaro-ai.commonAnnotations" . | nindent 4 }}
+rules:
+  # Node management for edge deployment
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list", "watch", "patch"]
+  
+  # Pod scheduling across edge nodes
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch", "create", "delete"]
+  
+  # DaemonSet management for edge agents
+  - apiGroups: ["apps"]
+    resources: ["daemonsets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  
+  # Custom resources for edge computing
+  - apiGroups: ["edge.ventaro.ai"]
+    resources: ["*"]
+    verbs: ["*"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "ventaro-ai.fullname" . }}-edge-computing
+  labels:
+    {{- include "ventaro-ai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: edge-rbac
+  annotations:
+    {{- include "ventaro-ai.commonAnnotations" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "ventaro-ai.fullname" . }}-edge-computing
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "ventaro-ai.fullname" . }}-edge-computing
+    namespace: {{ .Values.global.namespace | default .Release.Namespace }}
+---
+{{- end }}
+
+# Monitoring RBAC (if enabled)
+{{- if and .Values.monitoring.prometheus.enabled .Values.rbac.create }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "ventaro-ai.fullname" . }}-monitoring
+  labels:
+    {{- include "ventaro-ai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: monitoring-rbac
+  annotations:
+    {{- include "ventaro-ai.commonAnnotations" . | nindent 4 }}
+rules:
+  # Prometheus scraping permissions
+  - apiGroups: [""]
+    resources: ["nodes", "nodes/proxy", "nodes/metrics", "services", "endpoints", "pods"]
+    verbs: ["get", "list", "watch"]
+  
+  # Service monitor management
+  - apiGroups: ["monitoring.coreos.com"]
+    resources: ["servicemonitors", "podmonitors", "prometheusrules"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  
+  # Ingress monitoring
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["get", "list", "watch"]
+  
+  # ConfigMap access for Prometheus configuration
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "ventaro-ai.fullname" . }}-monitoring
+  labels:
+    {{- include "ventaro-ai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: monitoring-rbac
+  annotations:
+    {{- include "ventaro-ai.commonAnnotations" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "ventaro-ai.fullname" . }}-monitoring
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "ventaro-ai.fullname" . }}-monitoring
+    namespace: {{ .Values.global.namespace | default .Release.Namespace }}
+---
+{{- end }}
+
+# Backup RBAC (if enabled)
+{{- if and .Values.backup.enabled .Values.rbac.create }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "ventaro-ai.fullname" . }}-backup
+  labels:
+    {{- include "ventaro-ai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backup-rbac
+  annotations:
+    {{- include "ventaro-ai.commonAnnotations" . | nindent 4 }}
+rules:
+  # Backup resource access
+  - apiGroups: [""]
+    resources: ["persistentvolumes", "persistentvolumeclaims"]
+    verbs: ["get", "list", "watch"]
+  
+  # Velero backup resources
+  - apiGroups: ["velero.io"]
+    resources: ["*"]
+    verbs: ["*"]
+  
+  # Snapshot management
+  - apiGroups: ["snapshot.storage.k8s.io"]
+    resources: ["volumesnapshots", "volumesnapshotcontents", "volumesnapshotclasses"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "ventaro-ai.fullname" . }}-backup
+  labels:
+    {{- include "ventaro-ai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backup-rbac
+  annotations:
+    {{- include "ventaro-ai.commonAnnotations" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "ventaro-ai.fullname" . }}-backup
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "ventaro-ai.fullname" . }}-backup
+    namespace: {{ .Values.global.namespace | default .Release.Namespace }}
+---
+{{- end }}
+
+# Development RBAC (if enabled)
+{{- if and .Values.development.enabled .Values.rbac.create }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "ventaro-ai.fullname" . }}-development
+  namespace: {{ .Values.global.namespace | default .Release.Namespace }}
+  labels:
+    {{- include "ventaro-ai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: development-rbac
+  annotations:
+    {{- include "ventaro-ai.commonAnnotations" . | nindent 4 }}
+rules:
+  # Full development access
+  - apiGroups: ["*"]
+    resources: ["*"]
+    verbs: ["*"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "ventaro-ai.fullname" . }}-development
+  namespace: {{ .Values.global.namespace | default .Release.Namespace }}
+  labels:
+    {{- include "ventaro-ai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: development-rbac
+  annotations:
+    {{- include "ventaro-ai.commonAnnotations" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "ventaro-ai.fullname" . }}-development
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "ventaro-ai.fullname" . }}-development
+    namespace: {{ .Values.global.namespace | default .Release.Namespace }}
+---
+{{- end }}

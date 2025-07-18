@@ -1,0 +1,405 @@
+{{- if .Values.app.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "ventaro-ai.fullname" . }}-app
+  namespace: {{ .Values.global.namespace | default .Release.Namespace }}
+  labels:
+    {{- include "ventaro-ai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: main-app
+spec:
+  {{- if not .Values.app.autoscaling.enabled }}
+  replicas: {{ .Values.app.replicaCount }}
+  {{- end }}
+  strategy:
+    {{- toYaml .Values.app.updateStrategy | nindent 4 }}
+  selector:
+    matchLabels:
+      {{- include "ventaro-ai.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: main-app
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- with .Values.app.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "ventaro-ai.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: main-app
+        {{- with .Values.app.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.app.image.pullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "ventaro-ai.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.global.securityContext | nindent 8 }}
+      containers:
+        - name: {{ .Chart.Name }}-app
+          securityContext:
+            {{- toYaml .Values.app.securityContext | nindent 12 }}
+          image: "{{ .Values.app.image.registry }}/{{ .Values.app.image.repository }}:{{ .Values.app.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.app.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.app.service.targetPort }}
+              protocol: TCP
+            - name: metrics
+              containerPort: 9090
+              protocol: TCP
+          env:
+            {{- range $key, $value := .Values.app.env }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "ventaro-ai.fullname" . }}-database-secrets
+                  key: DATABASE_URL
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "ventaro-ai.fullname" . }}-database-secrets
+                  key: REDIS_URL
+            - name: MONGODB_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "ventaro-ai.fullname" . }}-database-secrets
+                  key: MONGODB_URL
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "ventaro-ai.fullname" . }}-app-secrets
+                  key: JWT_SECRET
+            - name: ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "ventaro-ai.fullname" . }}-app-secrets
+                  key: ENCRYPTION_KEY
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "ventaro-ai.fullname" . }}-api-keys
+                  key: OPENAI_API_KEY
+            - name: HUGGINGFACE_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "ventaro-ai.fullname" . }}-api-keys
+                  key: HUGGINGFACE_API_KEY
+          envFrom:
+            - configMapRef:
+                name: {{ include "ventaro-ai.fullname" . }}-app-config
+          {{- if .Values.app.livenessProbe }}
+          livenessProbe:
+            {{- toYaml .Values.app.livenessProbe | nindent 12 }}
+          {{- end }}
+          {{- if .Values.app.readinessProbe }}
+          readinessProbe:
+            {{- toYaml .Values.app.readinessProbe | nindent 12 }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.app.resources | nindent 12 }}
+          {{- if .Values.app.volumeMounts }}
+          volumeMounts:
+            {{- toYaml .Values.app.volumeMounts | nindent 12 }}
+          {{- end }}
+      {{- if .Values.app.volumes }}
+      volumes:
+        {{- toYaml .Values.app.volumes | nindent 8 }}
+      {{- end }}
+      {{- with .Values.app.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.app.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.app.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.performance.priorityClass.enabled }}
+      priorityClassName: {{ include "ventaro-ai.fullname" . }}-medium
+      {{- end }}
+{{- end }}
+
+---
+{{- if .Values.aiProcessor.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "ventaro-ai.fullname" . }}-ai-processor
+  namespace: {{ .Values.global.namespace | default .Release.Namespace }}
+  labels:
+    {{- include "ventaro-ai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ai-processor
+spec:
+  {{- if not .Values.aiProcessor.autoscaling.enabled }}
+  replicas: {{ .Values.aiProcessor.replicaCount }}
+  {{- end }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 0
+  selector:
+    matchLabels:
+      {{- include "ventaro-ai.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: ai-processor
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: "/metrics"
+      labels:
+        {{- include "ventaro-ai.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: ai-processor
+    spec:
+      serviceAccountName: {{ include "ventaro-ai.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.global.securityContext | nindent 8 }}
+      {{- if .Values.aiProcessor.nodeSelector }}
+      nodeSelector:
+        {{- toYaml .Values.aiProcessor.nodeSelector | nindent 8 }}
+      {{- end }}
+      {{- if .Values.aiProcessor.tolerations }}
+      tolerations:
+        {{- toYaml .Values.aiProcessor.tolerations | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: {{ .Chart.Name }}-ai-processor
+          image: "{{ .Values.aiProcessor.image.registry }}/{{ .Values.aiProcessor.image.repository }}:{{ .Values.aiProcessor.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.aiProcessor.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.aiProcessor.service.targetPort }}
+              protocol: TCP
+            - name: metrics
+              containerPort: 9090
+              protocol: TCP
+          env:
+            {{- range $key, $value := .Values.aiProcessor.env }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "ventaro-ai.fullname" . }}-api-keys
+                  key: OPENAI_API_KEY
+            - name: HUGGINGFACE_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "ventaro-ai.fullname" . }}-api-keys
+                  key: HUGGINGFACE_API_KEY
+          envFrom:
+            - configMapRef:
+                name: {{ include "ventaro-ai.fullname" . }}-ai-config
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.aiProcessor.service.targetPort }}
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: {{ .Values.aiProcessor.service.targetPort }}
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.aiProcessor.resources | nindent 12 }}
+          volumeMounts:
+            - name: model-cache
+              mountPath: /app/models
+            - name: temp
+              mountPath: /tmp
+      volumes:
+        - name: model-cache
+          emptyDir:
+            sizeLimit: 50Gi
+        - name: temp
+          emptyDir: {}
+      {{- if .Values.performance.priorityClass.enabled }}
+      priorityClassName: {{ include "ventaro-ai.fullname" . }}-high
+      {{- end }}
+{{- end }}
+
+---
+{{- if .Values.edgeComputing.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "ventaro-ai.fullname" . }}-edge-computing
+  namespace: {{ .Values.global.namespace | default .Release.Namespace }}
+  labels:
+    {{- include "ventaro-ai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: edge-computing
+spec:
+  replicas: {{ .Values.edgeComputing.replicaCount }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  selector:
+    matchLabels:
+      {{- include "ventaro-ai.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: edge-computing
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: "/metrics"
+      labels:
+        {{- include "ventaro-ai.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: edge-computing
+    spec:
+      serviceAccountName: {{ include "ventaro-ai.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.global.securityContext | nindent 8 }}
+      containers:
+        - name: {{ .Chart.Name }}-edge-computing
+          image: "{{ .Values.edgeComputing.image.registry }}/{{ .Values.edgeComputing.image.repository }}:{{ .Values.edgeComputing.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.edgeComputing.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.edgeComputing.service.targetPort }}
+              protocol: TCP
+            - name: metrics
+              containerPort: 9090
+              protocol: TCP
+          env:
+            {{- range $key, $value := .Values.edgeComputing.env }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "ventaro-ai.fullname" . }}-edge-config
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.edgeComputing.service.targetPort }}
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: {{ .Values.edgeComputing.service.targetPort }}
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.edgeComputing.resources | nindent 12 }}
+      {{- if .Values.performance.priorityClass.enabled }}
+      priorityClassName: {{ include "ventaro-ai.fullname" . }}-medium
+      {{- end }}
+{{- end }}
+
+---
+{{- if .Values.iotManager.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "ventaro-ai.fullname" . }}-iot-manager
+  namespace: {{ .Values.global.namespace | default .Release.Namespace }}
+  labels:
+    {{- include "ventaro-ai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: iot-manager
+spec:
+  replicas: {{ .Values.iotManager.replicaCount }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  selector:
+    matchLabels:
+      {{- include "ventaro-ai.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: iot-manager
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: "/metrics"
+      labels:
+        {{- include "ventaro-ai.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: iot-manager
+    spec:
+      serviceAccountName: {{ include "ventaro-ai.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.global.securityContext | nindent 8 }}
+      containers:
+        - name: {{ .Chart.Name }}-iot-manager
+          image: "{{ .Values.iotManager.image.registry }}/{{ .Values.iotManager.image.repository }}:{{ .Values.iotManager.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.iotManager.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.iotManager.service.targetPort }}
+              protocol: TCP
+            - name: mqtt
+              containerPort: 1883
+              protocol: TCP
+            - name: websocket
+              containerPort: 8083
+              protocol: TCP
+            - name: metrics
+              containerPort: 9090
+              protocol: TCP
+          env:
+            {{- range $key, $value := .Values.iotManager.env }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "ventaro-ai.fullname" . }}-iot-config
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.iotManager.service.targetPort }}
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: {{ .Values.iotManager.service.targetPort }}
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.iotManager.resources | nindent 12 }}
+          volumeMounts:
+            - name: iot-data
+              mountPath: /app/data
+      volumes:
+        - name: iot-data
+          emptyDir: {}
+      {{- if .Values.performance.priorityClass.enabled }}
+      priorityClassName: {{ include "ventaro-ai.fullname" . }}-medium
+      {{- end }}
+{{- end }}

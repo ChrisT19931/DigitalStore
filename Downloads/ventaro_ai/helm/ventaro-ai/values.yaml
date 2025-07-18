@@ -1,0 +1,836 @@
+# Ventaro AI Helm Chart Values
+# Default values for ventaro-ai.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+# Global configuration
+global:
+  # Image registry
+  imageRegistry: ""
+  # Image pull secrets
+  imagePullSecrets: []
+  # Storage class
+  storageClass: ""
+  # Namespace
+  namespace: ventaro-ai
+  # Environment
+  environment: production
+  # Domain
+  domain: ventaro.ai
+  # TLS configuration
+  tls:
+    enabled: true
+    secretName: ventaro-ai-tls
+  # Security context
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1001
+    fsGroup: 1001
+  # Resource quotas
+  resourceQuota:
+    enabled: true
+    requests:
+      cpu: "10"
+      memory: "20Gi"
+    limits:
+      cpu: "50"
+      memory: "100Gi"
+
+# Main Ventaro AI Application
+app:
+  enabled: true
+  name: ventaro-app
+  
+  # Image configuration
+  image:
+    registry: docker.io
+    repository: ventaro/ai-app
+    tag: "1.0.0"
+    pullPolicy: IfNotPresent
+    pullSecrets: []
+  
+  # Replica configuration
+  replicaCount: 3
+  
+  # Update strategy
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  
+  # Pod configuration
+  podAnnotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "3000"
+    prometheus.io/path: "/metrics"
+  
+  podLabels:
+    app.kubernetes.io/component: main-app
+    app.kubernetes.io/part-of: ventaro-ai
+  
+  # Security context
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+    readOnlyRootFilesystem: true
+    runAsNonRoot: true
+    runAsUser: 1001
+  
+  # Service configuration
+  service:
+    type: ClusterIP
+    port: 80
+    targetPort: 3000
+    annotations: {}
+  
+  # Resource limits
+  resources:
+    limits:
+      cpu: 2000m
+      memory: 4Gi
+    requests:
+      cpu: 500m
+      memory: 1Gi
+  
+  # Autoscaling
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 20
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+  
+  # Health checks
+  livenessProbe:
+    httpGet:
+      path: /health
+      port: 3000
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+  
+  readinessProbe:
+    httpGet:
+      path: /ready
+      port: 3000
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 3
+  
+  # Environment variables
+  env:
+    NODE_ENV: production
+    PORT: "3000"
+    LOG_LEVEL: info
+    METRICS_ENABLED: "true"
+  
+  # Volume mounts
+  volumeMounts:
+    - name: app-storage
+      mountPath: /app/storage
+    - name: temp
+      mountPath: /tmp
+  
+  # Volumes
+  volumes:
+    - name: app-storage
+      persistentVolumeClaim:
+        claimName: ventaro-app-storage
+    - name: temp
+      emptyDir: {}
+  
+  # Persistent volume claim
+  persistence:
+    enabled: true
+    storageClass: ""
+    accessMode: ReadWriteOnce
+    size: 10Gi
+    annotations: {}
+
+# AI Processor Service
+aiProcessor:
+  enabled: true
+  name: ventaro-ai-processor
+  
+  # Image configuration
+  image:
+    registry: docker.io
+    repository: ventaro/ai-processor
+    tag: "1.0.0"
+    pullPolicy: IfNotPresent
+  
+  # Replica configuration
+  replicaCount: 2
+  
+  # GPU configuration
+  gpu:
+    enabled: true
+    count: 1
+    type: nvidia.com/gpu
+  
+  # Node selector for GPU nodes
+  nodeSelector:
+    node-type: gpu
+  
+  # Tolerations for GPU nodes
+  tolerations:
+    - key: nvidia.com/gpu
+      operator: Exists
+      effect: NoSchedule
+  
+  # Resource limits
+  resources:
+    limits:
+      cpu: 4000m
+      memory: 8Gi
+      nvidia.com/gpu: 1
+    requests:
+      cpu: 1000m
+      memory: 2Gi
+      nvidia.com/gpu: 1
+  
+  # Service configuration
+  service:
+    type: ClusterIP
+    port: 80
+    targetPort: 5000
+  
+  # Environment variables
+  env:
+    PYTHON_ENV: production
+    CUDA_VISIBLE_DEVICES: "0"
+    PYTORCH_CUDA_ALLOC_CONF: max_split_size_mb:512
+  
+  # Autoscaling
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+
+# Edge Computing Service
+edgeComputing:
+  enabled: true
+  name: ventaro-edge-computing
+  
+  # Image configuration
+  image:
+    registry: docker.io
+    repository: ventaro/edge-computing
+    tag: "1.0.0"
+    pullPolicy: IfNotPresent
+  
+  # Replica configuration
+  replicaCount: 3
+  
+  # Resource limits
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+    requests:
+      cpu: 200m
+      memory: 512Mi
+  
+  # Service configuration
+  service:
+    type: ClusterIP
+    port: 80
+    targetPort: 8080
+  
+  # Environment variables
+  env:
+    EDGE_MODE: "true"
+    PROCESSING_TIMEOUT: "30s"
+
+# IoT Manager Service
+iotManager:
+  enabled: true
+  name: ventaro-iot-manager
+  
+  # Image configuration
+  image:
+    registry: docker.io
+    repository: ventaro/iot-manager
+    tag: "1.0.0"
+    pullPolicy: IfNotPresent
+  
+  # Replica configuration
+  replicaCount: 2
+  
+  # Resource limits
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+    requests:
+      cpu: 300m
+      memory: 512Mi
+  
+  # Service configuration
+  service:
+    type: ClusterIP
+    port: 80
+    targetPort: 9090
+  
+  # Environment variables
+  env:
+    IOT_PROTOCOL: mqtt
+    DEVICE_TIMEOUT: "60s"
+
+# Database configurations
+databases:
+  # Redis configuration
+  redis:
+    enabled: true
+    auth:
+      enabled: true
+      password: "redis-password"
+    master:
+      persistence:
+        enabled: true
+        size: 8Gi
+    replica:
+      replicaCount: 2
+      persistence:
+        enabled: true
+        size: 8Gi
+    metrics:
+      enabled: true
+  
+  # MongoDB configuration
+  mongodb:
+    enabled: true
+    auth:
+      enabled: true
+      rootPassword: "mongodb-password"
+      username: ventaro
+      password: "ventaro-password"
+      database: ventaro_ai
+    persistence:
+      enabled: true
+      size: 20Gi
+    replicaSet:
+      enabled: true
+      replicas:
+        secondary: 2
+        arbiter: 1
+    metrics:
+      enabled: true
+  
+  # PostgreSQL configuration
+  postgresql:
+    enabled: true
+    auth:
+      postgresPassword: "postgres-password"
+      username: ventaro
+      password: "ventaro-password"
+      database: ventaro_ai
+    primary:
+      persistence:
+        enabled: true
+        size: 20Gi
+    readReplicas:
+      replicaCount: 1
+      persistence:
+        enabled: true
+        size: 20Gi
+    metrics:
+      enabled: true
+  
+  # InfluxDB configuration
+  influxdb:
+    enabled: true
+    auth:
+      admin:
+        username: admin
+        password: "influxdb-password"
+        token: "influxdb-token"
+    persistence:
+      enabled: true
+      size: 50Gi
+    metrics:
+      enabled: true
+
+# Monitoring stack
+monitoring:
+  # Prometheus configuration
+  prometheus:
+    enabled: true
+    server:
+      persistentVolume:
+        enabled: true
+        size: 50Gi
+      retention: "30d"
+    alertmanager:
+      enabled: true
+      persistentVolume:
+        enabled: true
+        size: 10Gi
+    nodeExporter:
+      enabled: true
+    pushgateway:
+      enabled: true
+  
+  # Grafana configuration
+  grafana:
+    enabled: true
+    admin:
+      user: admin
+      password: "grafana-password"
+    persistence:
+      enabled: true
+      size: 10Gi
+    dashboardProviders:
+      dashboardproviders.yaml:
+        apiVersion: 1
+        providers:
+          - name: 'default'
+            orgId: 1
+            folder: ''
+            type: file
+            disableDeletion: false
+            editable: true
+            options:
+              path: /var/lib/grafana/dashboards/default
+    datasources:
+      datasources.yaml:
+        apiVersion: 1
+        datasources:
+          - name: Prometheus
+            type: prometheus
+            url: http://prometheus-server:80
+            access: proxy
+            isDefault: true
+          - name: Jaeger
+            type: jaeger
+            url: http://jaeger-query:16686
+            access: proxy
+  
+  # Jaeger configuration
+  jaeger:
+    enabled: true
+    storage:
+      type: elasticsearch
+    elasticsearch:
+      host: elasticsearch-master
+      port: 9200
+    agent:
+      enabled: true
+    collector:
+      enabled: true
+    query:
+      enabled: true
+
+# Logging stack
+logging:
+  # Elasticsearch configuration
+  elasticsearch:
+    enabled: true
+    replicas: 3
+    minimumMasterNodes: 2
+    persistence:
+      enabled: true
+      size: 100Gi
+    resources:
+      requests:
+        cpu: 1000m
+        memory: 2Gi
+      limits:
+        cpu: 2000m
+        memory: 4Gi
+  
+  # Kibana configuration
+  kibana:
+    enabled: true
+    replicas: 1
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi
+      limits:
+        cpu: 1000m
+        memory: 2Gi
+  
+  # Fluentd configuration
+  fluentd:
+    enabled: true
+    elasticsearch:
+      host: elasticsearch-master
+      port: 9200
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        cpu: 500m
+        memory: 1Gi
+
+# Ingress configuration
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "100m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+    nginx.ingress.kubernetes.io/enable-cors: "true"
+    nginx.ingress.kubernetes.io/cors-allow-origin: "*"
+    nginx.ingress.kubernetes.io/cors-allow-methods: "GET, POST, PUT, DELETE, OPTIONS"
+    nginx.ingress.kubernetes.io/cors-allow-headers: "DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+  
+  hosts:
+    - host: ventaro.ai
+      paths:
+        - path: /
+          pathType: Prefix
+          service:
+            name: ventaro-app-service
+            port: 80
+    - host: www.ventaro.ai
+      paths:
+        - path: /
+          pathType: Prefix
+          service:
+            name: ventaro-app-service
+            port: 80
+    - host: app.ventaro.ai
+      paths:
+        - path: /
+          pathType: Prefix
+          service:
+            name: ventaro-app-service
+            port: 80
+    - host: api.ventaro.ai
+      paths:
+        - path: /
+          pathType: Prefix
+          service:
+            name: ventaro-app-service
+            port: 80
+    - host: ai.ventaro.ai
+      paths:
+        - path: /
+          pathType: Prefix
+          service:
+            name: ventaro-ai-service
+            port: 80
+    - host: edge.ventaro.ai
+      paths:
+        - path: /
+          pathType: Prefix
+          service:
+            name: ventaro-edge-service
+            port: 80
+    - host: iot.ventaro.ai
+      paths:
+        - path: /
+          pathType: Prefix
+          service:
+            name: ventaro-iot-service
+            port: 80
+  
+  tls:
+    - secretName: ventaro-ai-tls
+      hosts:
+        - ventaro.ai
+        - www.ventaro.ai
+        - app.ventaro.ai
+        - api.ventaro.ai
+        - ai.ventaro.ai
+        - edge.ventaro.ai
+        - iot.ventaro.ai
+  
+  # NGINX Ingress Controller
+  nginx:
+    enabled: true
+    controller:
+      replicaCount: 3
+      resources:
+        requests:
+          cpu: 500m
+          memory: 1Gi
+        limits:
+          cpu: 1000m
+          memory: 2Gi
+      metrics:
+        enabled: true
+      autoscaling:
+        enabled: true
+        minReplicas: 3
+        maxReplicas: 10
+        targetCPUUtilizationPercentage: 70
+
+# Security configurations
+security:
+  # Network policies
+  networkPolicies:
+    enabled: true
+    ingress:
+      enabled: true
+    egress:
+      enabled: true
+  
+  # Pod security policies
+  podSecurityPolicy:
+    enabled: true
+  
+  # Service accounts
+  serviceAccount:
+    create: true
+    annotations: {}
+    name: ""
+  
+  # RBAC
+  rbac:
+    create: true
+  
+  # Cert-Manager
+  certManager:
+    enabled: true
+    installCRDs: true
+    clusterIssuer:
+      name: letsencrypt-prod
+      email: admin@ventaro.ai
+      server: https://acme-v02.api.letsencrypt.org/directory
+  
+  # Pod Disruption Budgets
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+
+# Configuration management
+config:
+  # ConfigMaps
+  configMaps:
+    app-config:
+      data:
+        NODE_ENV: production
+        LOG_LEVEL: info
+        API_VERSION: v1
+        FEATURE_FLAGS: '{"ai_processing": true, "edge_computing": true, "iot_management": true}'
+    
+    ai-config:
+      data:
+        MODEL_CACHE_SIZE: "10GB"
+        MAX_CONCURRENT_REQUESTS: "100"
+        GPU_MEMORY_FRACTION: "0.8"
+        INFERENCE_TIMEOUT: "30s"
+    
+    edge-config:
+      data:
+        EDGE_NODES_MAX: "1000"
+        SYNC_INTERVAL: "30s"
+        OFFLINE_THRESHOLD: "300s"
+    
+    iot-config:
+      data:
+        MAX_DEVICES: "10000"
+        TELEMETRY_INTERVAL: "60s"
+        DEVICE_TIMEOUT: "300s"
+  
+  # Secrets
+  secrets:
+    app-secrets:
+      type: Opaque
+      data:
+        JWT_SECRET: "your-jwt-secret-base64"
+        ENCRYPTION_KEY: "your-encryption-key-base64"
+    
+    database-secrets:
+      type: Opaque
+      data:
+        POSTGRES_PASSWORD: "postgres-password-base64"
+        MONGODB_PASSWORD: "mongodb-password-base64"
+        REDIS_PASSWORD: "redis-password-base64"
+    
+    api-keys:
+      type: Opaque
+      data:
+        OPENAI_API_KEY: "your-openai-key-base64"
+        HUGGINGFACE_API_KEY: "your-huggingface-key-base64"
+        STRIPE_SECRET_KEY: "your-stripe-key-base64"
+
+# Feature flags
+features:
+  ai:
+    enabled: true
+    models:
+      gpt4: true
+      claude: true
+      llama: true
+      custom: true
+  
+  iot:
+    enabled: true
+    protocols:
+      mqtt: true
+      coap: true
+      websocket: true
+  
+  edge:
+    enabled: true
+    computing:
+      enabled: true
+      maxNodes: 1000
+  
+  blockchain:
+    enabled: false
+    networks:
+      ethereum: false
+      polygon: false
+  
+  ar_vr:
+    enabled: false
+    webxr: false
+    unity: false
+
+# Performance tuning
+performance:
+  # Resource quotas
+  resourceQuota:
+    enabled: true
+    hard:
+      requests.cpu: "20"
+      requests.memory: "40Gi"
+      limits.cpu: "100"
+      limits.memory: "200Gi"
+      persistentvolumeclaims: "50"
+      services: "20"
+      secrets: "20"
+      configmaps: "20"
+  
+  # Limit ranges
+  limitRange:
+    enabled: true
+    limits:
+      - default:
+          cpu: "500m"
+          memory: "1Gi"
+        defaultRequest:
+          cpu: "100m"
+          memory: "256Mi"
+        type: Container
+  
+  # Priority classes
+  priorityClass:
+    enabled: true
+    classes:
+      high:
+        value: 1000
+        globalDefault: false
+        description: "High priority class for critical workloads"
+      medium:
+        value: 500
+        globalDefault: true
+        description: "Medium priority class for standard workloads"
+      low:
+        value: 100
+        globalDefault: false
+        description: "Low priority class for batch workloads"
+
+# Backup and disaster recovery
+backup:
+  enabled: true
+  schedule: "0 2 * * *"
+  retention: "30d"
+  storage:
+    type: s3
+    bucket: ventaro-ai-backups
+    region: us-west-2
+  
+  # Velero configuration
+  velero:
+    enabled: true
+    configuration:
+      provider: aws
+      backupStorageLocation:
+        bucket: ventaro-ai-velero-backups
+        config:
+          region: us-west-2
+      volumeSnapshotLocation:
+        config:
+          region: us-west-2
+
+# Development and testing
+development:
+  enabled: false
+  debug: false
+  hotReload: false
+  mockServices: false
+  testData: false
+
+# Cost optimization
+costOptimization:
+  # Spot instances
+  spot:
+    enabled: false
+    maxPrice: "0.10"
+  
+  # Vertical Pod Autoscaler
+  vpa:
+    enabled: false
+    updateMode: "Off"
+  
+  # Cluster Autoscaler
+  clusterAutoscaler:
+    enabled: true
+    minNodes: 3
+    maxNodes: 100
+    scaleDownDelay: "10m"
+    scaleDownUnneededTime: "10m"
+
+# Compliance and governance
+compliance:
+  # Pod Security Standards
+  podSecurityStandards:
+    enabled: true
+    level: restricted
+  
+  # Open Policy Agent
+  opa:
+    enabled: false
+    gatekeeper:
+      enabled: false
+  
+  # Falco
+  falco:
+    enabled: false
+    rules:
+      enabled: false
+
+# External integrations
+integrations:
+  # AWS services
+  aws:
+    enabled: true
+    region: us-west-2
+    serviceAccount:
+      annotations:
+        eks.amazonaws.com/role-arn: "arn:aws:iam::ACCOUNT:role/ventaro-ai-role"
+  
+  # Datadog
+  datadog:
+    enabled: false
+    apiKey: ""
+    appKey: ""
+  
+  # New Relic
+  newrelic:
+    enabled: false
+    licenseKey: ""
+  
+  # Slack
+  slack:
+    enabled: false
+    webhook: ""
+    channel: "#ventaro-ai-alerts"

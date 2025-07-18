@@ -1,0 +1,296 @@
+{{- if .Values.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "ventaro-ai.fullname" . }}-app-pdb
+  namespace: {{ .Values.global.namespace | default .Release.Namespace }}
+  labels:
+    {{- include "ventaro-ai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: availability
+  annotations:
+    {{- include "ventaro-ai.commonAnnotations" . | nindent 4 }}
+spec:
+  {{- if .Values.podDisruptionBudget.minAvailable }}
+  minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}
+  {{- else if .Values.podDisruptionBudget.maxUnavailable }}
+  maxUnavailable: {{ .Values.podDisruptionBudget.maxUnavailable }}
+  {{- else }}
+  minAvailable: {{ .Values.podDisruptionBudget.defaultMinAvailable | default "50%" }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "ventaro-ai.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: app
+
+---
+{{- end }}
+
+# AI Processor PDB (if enabled)
+{{- if and .Values.features.ai.enabled .Values.aiProcessor.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "ventaro-ai.fullname" . }}-ai-processor-pdb
+  namespace: {{ .Values.global.namespace | default .Release.Namespace }}
+  labels:
+    {{- include "ventaro-ai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ai-availability
+  annotations:
+    {{- include "ventaro-ai.commonAnnotations" . | nindent 4 }}
+spec:
+  {{- if .Values.aiProcessor.podDisruptionBudget.minAvailable }}
+  minAvailable: {{ .Values.aiProcessor.podDisruptionBudget.minAvailable }}
+  {{- else if .Values.aiProcessor.podDisruptionBudget.maxUnavailable }}
+  maxUnavailable: {{ .Values.aiProcessor.podDisruptionBudget.maxUnavailable }}
+  {{- else }}
+  minAvailable: {{ .Values.aiProcessor.podDisruptionBudget.defaultMinAvailable | default 1 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "ventaro-ai.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: ai-processor
+
+---
+{{- end }}
+
+# Edge Computing PDB (if enabled)
+{{- if and .Values.features.edge.enabled .Values.edgeComputing.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "ventaro-ai.fullname" . }}-edge-computing-pdb
+  namespace: {{ .Values.global.namespace | default .Release.Namespace }}
+  labels:
+    {{- include "ventaro-ai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: edge-availability
+  annotations:
+    {{- include "ventaro-ai.commonAnnotations" . | nindent 4 }}
+spec:
+  {{- if .Values.edgeComputing.podDisruptionBudget.minAvailable }}
+  minAvailable: {{ .Values.edgeComputing.podDisruptionBudget.minAvailable }}
+  {{- else if .Values.edgeComputing.podDisruptionBudget.maxUnavailable }}
+  maxUnavailable: {{ .Values.edgeComputing.podDisruptionBudget.maxUnavailable }}
+  {{- else }}
+  minAvailable: {{ .Values.edgeComputing.podDisruptionBudget.defaultMinAvailable | default 1 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "ventaro-ai.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: edge-computing
+
+---
+{{- end }}
+
+# IoT Manager PDB (if enabled)
+{{- if and .Values.features.iot.enabled .Values.iotManager.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "ventaro-ai.fullname" . }}-iot-manager-pdb
+  namespace: {{ .Values.global.namespace | default .Release.Namespace }}
+  labels:
+    {{- include "ventaro-ai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: iot-availability
+  annotations:
+    {{- include "ventaro-ai.commonAnnotations" . | nindent 4 }}
+spec:
+  {{- if .Values.iotManager.podDisruptionBudget.minAvailable }}
+  minAvailable: {{ .Values.iotManager.podDisruptionBudget.minAvailable }}
+  {{- else if .Values.iotManager.podDisruptionBudget.maxUnavailable }}
+  maxUnavailable: {{ .Values.iotManager.podDisruptionBudget.maxUnavailable }}
+  {{- else }}
+  minAvailable: {{ .Values.iotManager.podDisruptionBudget.defaultMinAvailable | default 1 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "ventaro-ai.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: iot-manager
+
+---
+{{- end }}
+
+# Database PDBs (if enabled)
+{{- if .Values.databases.postgresql.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "ventaro-ai.fullname" . }}-postgresql-pdb
+  namespace: {{ .Values.global.namespace | default .Release.Namespace }}
+  labels:
+    {{- include "ventaro-ai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: database-availability
+  annotations:
+    {{- include "ventaro-ai.commonAnnotations" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.databases.postgresql.podDisruptionBudget.minAvailable | default 1 }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: postgresql
+      app.kubernetes.io/instance: {{ .Release.Name }}
+
+---
+{{- end }}
+
+{{- if .Values.databases.mongodb.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "ventaro-ai.fullname" . }}-mongodb-pdb
+  namespace: {{ .Values.global.namespace | default .Release.Namespace }}
+  labels:
+    {{- include "ventaro-ai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: database-availability
+  annotations:
+    {{- include "ventaro-ai.commonAnnotations" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.databases.mongodb.podDisruptionBudget.minAvailable | default 1 }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: mongodb
+      app.kubernetes.io/instance: {{ .Release.Name }}
+
+---
+{{- end }}
+
+{{- if .Values.databases.redis.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "ventaro-ai.fullname" . }}-redis-pdb
+  namespace: {{ .Values.global.namespace | default .Release.Namespace }}
+  labels:
+    {{- include "ventaro-ai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: cache-availability
+  annotations:
+    {{- include "ventaro-ai.commonAnnotations" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.databases.redis.podDisruptionBudget.minAvailable | default 1 }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: redis
+      app.kubernetes.io/instance: {{ .Release.Name }}
+
+---
+{{- end }}
+
+# Monitoring PDBs (if enabled)
+{{- if .Values.monitoring.prometheus.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "ventaro-ai.fullname" . }}-prometheus-pdb
+  namespace: {{ .Values.global.namespace | default .Release.Namespace }}
+  labels:
+    {{- include "ventaro-ai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: monitoring-availability
+  annotations:
+    {{- include "ventaro-ai.commonAnnotations" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.monitoring.prometheus.podDisruptionBudget.minAvailable | default 1 }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: prometheus
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: server
+
+---
+{{- end }}
+
+{{- if .Values.monitoring.grafana.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "ventaro-ai.fullname" . }}-grafana-pdb
+  namespace: {{ .Values.global.namespace | default .Release.Namespace }}
+  labels:
+    {{- include "ventaro-ai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: monitoring-availability
+  annotations:
+    {{- include "ventaro-ai.commonAnnotations" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.monitoring.grafana.podDisruptionBudget.minAvailable | default 1 }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: grafana
+      app.kubernetes.io/instance: {{ .Release.Name }}
+
+---
+{{- end }}
+
+# Logging PDBs (if enabled)
+{{- if .Values.logging.elasticsearch.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "ventaro-ai.fullname" . }}-elasticsearch-pdb
+  namespace: {{ .Values.global.namespace | default .Release.Namespace }}
+  labels:
+    {{- include "ventaro-ai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: logging-availability
+  annotations:
+    {{- include "ventaro-ai.commonAnnotations" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.logging.elasticsearch.podDisruptionBudget.minAvailable | default "50%" }}
+  selector:
+    matchLabels:
+      app: elasticsearch-master
+      release: {{ .Release.Name }}
+
+---
+{{- end }}
+
+{{- if .Values.logging.kibana.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "ventaro-ai.fullname" . }}-kibana-pdb
+  namespace: {{ .Values.global.namespace | default .Release.Namespace }}
+  labels:
+    {{- include "ventaro-ai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: logging-availability
+  annotations:
+    {{- include "ventaro-ai.commonAnnotations" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.logging.kibana.podDisruptionBudget.minAvailable | default 1 }}
+  selector:
+    matchLabels:
+      app: kibana
+      release: {{ .Release.Name }}
+
+---
+{{- end }}
+
+# Custom PDBs from values
+{{- if .Values.podDisruptionBudget.custom }}
+{{- range $name, $pdb := .Values.podDisruptionBudget.custom }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "ventaro-ai.fullname" $ }}-{{ $name }}-pdb
+  namespace: {{ $.Values.global.namespace | default $.Release.Namespace }}
+  labels:
+    {{- include "ventaro-ai.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: custom-availability
+  annotations:
+    {{- include "ventaro-ai.commonAnnotations" $ | nindent 4 }}
+    {{- with $pdb.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  {{- if $pdb.minAvailable }}
+  minAvailable: {{ $pdb.minAvailable }}
+  {{- else if $pdb.maxUnavailable }}
+  maxUnavailable: {{ $pdb.maxUnavailable }}
+  {{- else }}
+  minAvailable: 1
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- toYaml $pdb.selector | nindent 6 }}
+  {{- if $pdb.unhealthyPodEvictionPolicy }}
+  unhealthyPodEvictionPolicy: {{ $pdb.unhealthyPodEvictionPolicy }}
+  {{- end }}
+
+---
+{{- end }}
+{{- end }}
